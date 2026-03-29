@@ -44,10 +44,10 @@ export default function AdminSidebar() {
 
       {/* 네비게이션 */}
       <Nav>
-        {MENU_ITEMS.map(({ path, icon: Icon, label }) => (
-          <StyledNavLink key={path} to={path}>
-            <Icon size={20} />
-            <span>{label}</span>
+        {MENU_ITEMS.map((item) => (
+          <StyledNavLink key={item.path} to={item.path}>
+            <item.icon size={20} />
+            <span>{item.label}</span>
           </StyledNavLink>
         ))}
       </Nav>
