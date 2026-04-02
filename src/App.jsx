@@ -1,13 +1,26 @@
 /**
  * 몽글픽 관리자 앱 라우팅 (10탭 + 로그인).
+ *
+ * 모든 관리자 페이지는 AdminGuard(인증+ADMIN 역할 검증)로 보호된다.
+ * 10개 탭: 대시보드, 사용자, 콘텐츠, 결제/포인트, 데이터, AI운영, 고객센터, 통계, 시스템, 설정
  */
 
 import { Routes, Route, Navigate } from 'react-router-dom';
 import AdminLayout from '@/shared/components/AdminLayout';
 import AdminGuard from '@/shared/components/AdminGuard';
-import PlaceholderPage from '@/shared/components/PlaceholderPage';
 import LoginPage from '@/features/auth/pages/LoginPage';
+
+/* ── 10개 탭 페이지 import ── */
+import DashboardPage from '@/features/dashboard/pages/DashboardPage';
+import UsersPage from '@/features/users/pages/UsersPage';
+import ContentPage from '@/features/content/pages/ContentPage';
+import PaymentPage from '@/features/payment/pages/PaymentPage';
+import DataPage from '@/features/data/pages/DataPage';
+import AiOpsPage from '@/features/ai/pages/AiOpsPage';
+import SupportPage from '@/features/support/pages/SupportPage';
+import StatsPage from '@/features/stats/pages/StatsPage';
 import SystemPage from '@/features/system/pages/SystemPage';
+import SettingsPage from '@/features/settings/pages/SettingsPage';
 
 export default function App() {
   return (
@@ -25,16 +38,16 @@ export default function App() {
         }
       >
         <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard" element={<PlaceholderPage title="대시보드" description="김민규 담당 — KPI 카드, 추이 차트, 최근 활동" />} />
-        <Route path="users" element={<PlaceholderPage title="사용자 관리" description="김민규 담당 — 회원 검색/상세, 역할 변경, 계정 정지" />} />
-        <Route path="content" element={<PlaceholderPage title="콘텐츠 관리" description="이민수 담당 — 신고/혐오표현 대기열, 게시글/리뷰 관리" />} />
-        <Route path="payment" element={<PlaceholderPage title="결제/포인트 관리" description="윤형주 담당 — 결제 내역/환불, 구독, 포인트 수동 지급" />} />
-        <Route path="data" element={<PlaceholderPage title="데이터 관리" description="윤형주 담당 — 영화 CRUD, 파이프라인 트리거, 수집 이력" />} />
-        <Route path="ai" element={<PlaceholderPage title="AI 운영" description="윤형주 담당 — 퀴즈/리뷰 트리거, 챗봇 로그" />} />
-        <Route path="support" element={<PlaceholderPage title="고객센터 관리" description="윤형주 담당 — 공지사항, FAQ CMS, 도움말, 티켓, 비속어" />} />
-        <Route path="stats" element={<PlaceholderPage title="통계/분석" description="정한나 담당 — KPI, 추천 분석, 검색 분석, 리텐션, 매출" />} />
+        <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="users" element={<UsersPage />} />
+        <Route path="content" element={<ContentPage />} />
+        <Route path="payment" element={<PaymentPage />} />
+        <Route path="data" element={<DataPage />} />
+        <Route path="ai" element={<AiOpsPage />} />
+        <Route path="support" element={<SupportPage />} />
+        <Route path="stats" element={<StatsPage />} />
         <Route path="system" element={<SystemPage />} />
-        <Route path="settings" element={<PlaceholderPage title="설정" description="김민규 담당 — 약관/정책, 배너, 관리자 활동 로그, 관리자 계정" />} />
+        <Route path="settings" element={<SettingsPage />} />
       </Route>
 
       {/* 루트 → 관리자 대시보드 */}

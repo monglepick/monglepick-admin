@@ -78,8 +78,8 @@ const TabButton = styled.button`
   padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.md};
   border: none;
   background: ${({ $active, theme }) => ($active ? theme.colors.primary : 'transparent')};
-  color: ${({ $active, theme }) => ($active ? '#fff' : theme.colors.text)};
-  border-radius: ${({ theme }) => theme.radii.md};
+  color: ${({ $active, theme }) => ($active ? '#fff' : theme.colors.textPrimary)};
+  border-radius: ${({ theme }) => theme.layout.cardRadius};
   cursor: pointer;
   font-size: ${({ theme }) => theme.fontSizes.sm};
   font-weight: ${({ $active, theme }) => ($active ? theme.fontWeights.semibold : theme.fontWeights.normal)};

@@ -23,4 +23,20 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: false,
   },
+  /* Vite 8(rolldown) ↔ recharts/d3 CJS 호환 문제 우회:
+     d3-* 모듈을 사전 번들링하여 ESM으로 변환 */
+  optimizeDeps: {
+    include: [
+      'recharts',
+      'd3-array',
+      'd3-scale',
+      'd3-shape',
+      'd3-interpolate',
+      'd3-color',
+      'd3-format',
+      'd3-time',
+      'd3-time-format',
+      'd3-path',
+    ],
+  },
 })

@@ -1,66 +1,75 @@
 /**
- * 약관/정책 관리 서브탭.
+ * 게시글 관리 탭 컴포넌트.
  *
  * 기능:
- * - 약관 목록 테이블 (제목, 유형, 버전, 필수여부, 활성여부, 생성일, 액션)
- * - 등록/수정 모달 (title, content, type, version, isRequired)
+ * - 게시글 목록 테이블 (title, category, userId, viewCount, likeCount, commentCount, isBlinded, isDeleted, 작성일, 액션)
+ * - 상단: keyword 검색 input + category select + 새로고침
+ * - 수정 모달: title / content / category / editReason 필드
  * - 삭제 확인 다이얼로그
- * - 페이지네이션 (10건/페이지)
+ * - 페이지네이션
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
-import { MdAdd, MdEdit, MdDelete, MdRefresh } from 'react-icons/md';
-import { fetchTerms, createTerm, updateTerm, deleteTerm } from '../api/settingsApi';
+import { MdRefresh, MdEdit, MdDelete, MdSearch } from 'react-icons/md';
+import { fetchPosts, updatePost, deletePost } from '../api/contentApi';
 import StatusBadge from '@/shared/components/StatusBadge';
 
-/** 약관 유형 옵션 */
-const TERM_TYPES = [
-  { value: 'TERMS_OF_SERVICE', label: '서비스 이용약관' },
-  { value: 'PRIVACY_POLICY', label: '개인정보 처리방침' },
-  { value: 'MARKETING', label: '마케팅 수신 동의' },
+/** 게시글 카테고리 옵션 */
+const CATEGORY_OPTIONS = [
+  { value: '', label: '전체 카테고리' },
+  { value: 'FREE', label: '자유' },
+  { value: 'DISCUSSION', label: '토론' },
+  { value: 'RECOMMENDATION', label: '추천' },
+  { value: 'NEWS', label: '뉴스' },
 ];
 
-/** 유형 한국어 라벨 맵 */
-const TYPE_LABELS = {
-  TERMS_OF_SERVICE: '서비스 이용약관',
-  PRIVACY_POLICY: '개인정보 처리방침',
-  MARKETING: '마케팅 동의',
+/** 카테고리 한국어 라벨 */
+const CATEGORY_LABELS = {
+  FREE: '자유',
+  DISCUSSION: '토론',
+  RECOMMENDATION: '추천',
+  NEWS: '뉴스',
 };
 
-/** 등록/수정 모달 초기값 */
+/** 수정 폼 초기값 */
 const INITIAL_FORM = {
   title: '',
   content: '',
-  type: 'TERMS_OF_SERVICE',
-  version: '',
-  isRequired: true,
+  category: 'FREE',
+  editReason: '',
 };
 
-/** 날짜 포맷 함수 */
+/** 페이지당 항목 수 */
+const PAGE_SIZE = 10;
+
+/**
+ * 날짜 문자열을 YYYY.MM.DD HH:MM 형식으로 포맷.
+ * @param {string} dateStr - ISO 날짜 문자열
+ * @returns {string}
+ */
 function formatDate(dateStr) {
   if (!dateStr) return '-';
-  return new Date(dateStr).toLocaleDateString('ko-KR', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
+  const d = new Date(dateStr);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export default function TermsTab() {
+export default function PostTab() {
   /* ── 목록 상태 ── */
-  const [terms, setTerms] = useState([]);
+  const [posts, setPosts] = useState([]);
+  const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  /* ── 페이지네이션 상태 ── */
+  /* ── 필터/페이지 상태 ── */
+  const [keyword, setKeyword] = useState('');
+  const [keywordInput, setKeywordInput] = useState(''); // 입력 버퍼 (엔터/버튼 확정)
+  const [filterCategory, setFilterCategory] = useState('');
   const [page, setPage] = useState(0);
-  const [totalPages, setTotalPages] = useState(0);
-  const PAGE_SIZE = 10;
 
-  /* ── 등록/수정 모달 상태 ── */
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState(null); // null: 신규, Object: 수정 대상
+  /* ── 수정 모달 상태 ── */
+  const [editTarget, setEditTarget] = useState(null);
   const [form, setForm] = useState(INITIAL_FORM);
   const [formLoading, setFormLoading] = useState(false);
 
@@ -68,106 +77,106 @@ export default function TermsTab() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
-  /** 약관 목록 조회 */
-  const loadTerms = useCallback(async () => {
+  /** 게시글 목록 조회 */
+  const loadPosts = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const result = await fetchTerms({ page, size: PAGE_SIZE });
-      // 페이징 응답 구조: { content: [], totalPages: n } 또는 배열
-      setTerms(result?.content ?? (Array.isArray(result) ? result : []));
+      const params = { page, size: PAGE_SIZE };
+      if (keyword) params.keyword = keyword;
+      if (filterCategory) params.category = filterCategory;
+      const result = await fetchPosts(params);
+      setPosts(result?.content ?? []);
       setTotalPages(result?.totalPages ?? 0);
     } catch (err) {
-      setError(err.message ?? '약관 목록 조회에 실패했습니다.');
+      setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [page]);
+  }, [page, keyword, filterCategory]);
 
   useEffect(() => {
-    loadTerms();
-  }, [loadTerms]);
+    loadPosts();
+  }, [loadPosts]);
 
-  /* ── 모달 열기 (신규 등록) ── */
-  function openCreateModal() {
-    setEditTarget(null);
-    setForm(INITIAL_FORM);
-    setModalOpen(true);
+  /** 키워드 검색 확정 (엔터 또는 버튼 클릭) */
+  function handleSearch() {
+    setKeyword(keywordInput.trim());
+    setPage(0);
   }
 
-  /* ── 모달 열기 (수정) ── */
-  function openEditModal(term) {
-    setEditTarget(term);
+  /** 검색 input에서 엔터 처리 */
+  function handleKeyDown(e) {
+    if (e.key === 'Enter') handleSearch();
+  }
+
+  /** 카테고리 필터 변경 시 첫 페이지로 초기화 */
+  function handleCategoryChange(e) {
+    setFilterCategory(e.target.value);
+    setPage(0);
+  }
+
+  /** 수정 모달 열기 */
+  function openEditModal(post) {
+    setEditTarget(post);
     setForm({
-      title: term.title ?? '',
-      content: term.content ?? '',
-      type: term.type ?? 'TERMS_OF_SERVICE',
-      version: term.version ?? '',
-      isRequired: term.isRequired ?? true,
+      title: post.title ?? '',
+      content: post.content ?? '',
+      category: post.category ?? 'FREE',
+      editReason: '',
     });
-    setModalOpen(true);
   }
 
-  /** 폼 필드 변경 핸들러 (input/select/textarea/checkbox 통합) */
+  /** 수정 모달 닫기 */
+  function closeEditModal() {
+    setEditTarget(null);
+  }
+
+  /** 폼 필드 변경 핸들러 */
   function handleFormChange(e) {
-    const { name, value, type, checked } = e.target;
-    setForm((prev) => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value,
-    }));
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
   }
 
-  /** 등록/수정 제출 */
-  async function handleFormSubmit(e) {
+  /** 게시글 수정 제출 */
+  async function handleEditSubmit(e) {
     e.preventDefault();
-    if (!form.title.trim()) {
-      alert('제목을 입력해주세요.');
-      return;
-    }
-    if (!form.content.trim()) {
-      alert('내용을 입력해주세요.');
-      return;
-    }
-    if (!form.version.trim()) {
-      alert('버전을 입력해주세요. (예: 1.0)');
-      return;
-    }
+    if (!form.title.trim()) { alert('제목을 입력해주세요.'); return; }
+    if (!form.content.trim()) { alert('내용을 입력해주세요.'); return; }
+    if (!form.editReason.trim()) { alert('수정 사유를 입력해주세요.'); return; }
 
     try {
       setFormLoading(true);
-      const id = editTarget?.id ?? editTarget?.termId;
-      if (editTarget) {
-        await updateTerm(id, form);
-      } else {
-        await createTerm(form);
-      }
-      setModalOpen(false);
-      // 등록 후 첫 페이지로 이동하여 최신 데이터 확인
-      if (!editTarget) setPage(0);
-      else loadTerms();
+      await updatePost(editTarget.id, form);
+      closeEditModal();
+      loadPosts();
     } catch (err) {
-      alert(err.message ?? '처리 중 오류가 발생했습니다.');
+      alert(err.message || '수정 중 오류가 발생했습니다.');
     } finally {
       setFormLoading(false);
     }
   }
 
-  /* ── 삭제 다이얼로그 오픈 ── */
-  function openDeleteDialog(term) {
-    setDeleteTarget(term);
+  /** 삭제 다이얼로그 열기 */
+  function openDeleteDialog(post) {
+    setDeleteTarget(post);
   }
 
-  /** 삭제 실행 */
+  /** 삭제 다이얼로그 닫기 */
+  function closeDeleteDialog() {
+    setDeleteTarget(null);
+  }
+
+  /** 게시글 삭제 실행 */
   async function handleDelete() {
     if (!deleteTarget) return;
     try {
       setDeleteLoading(true);
-      const id = deleteTarget.id ?? deleteTarget.termId;
-      await deleteTerm(id);
-      setDeleteTarget(null);
-      loadTerms();
+      await deletePost(deleteTarget.id);
+      closeDeleteDialog();
+      loadPosts();
     } catch (err) {
-      alert(err.message ?? '삭제 중 오류가 발생했습니다.');
+      alert(err.message || '삭제 중 오류가 발생했습니다.');
     } finally {
       setDeleteLoading(false);
     }
@@ -175,84 +184,126 @@ export default function TermsTab() {
 
   return (
     <Container>
-      {/* ── 툴바 ── */}
+      {/* ── 툴바: 키워드 검색 + 카테고리 필터 + 새로고침 ── */}
       <Toolbar>
         <ToolbarLeft>
-          <SectionTitle>약관/정책 관리</SectionTitle>
+          {/* 키워드 검색 */}
+          <SearchWrap>
+            <SearchInput
+              type="text"
+              placeholder="제목/내용 검색..."
+              value={keywordInput}
+              onChange={(e) => setKeywordInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+            />
+            <SearchButton onClick={handleSearch}>
+              <MdSearch size={16} />
+            </SearchButton>
+          </SearchWrap>
+          {/* 카테고리 select */}
+          <FilterSelect value={filterCategory} onChange={handleCategoryChange}>
+            {CATEGORY_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </FilterSelect>
         </ToolbarLeft>
         <ToolbarRight>
-          <IconButton onClick={loadTerms} disabled={loading} title="새로고침">
+          <IconButton onClick={loadPosts} disabled={loading} title="새로고침">
             <MdRefresh size={16} />
           </IconButton>
-          <PrimaryButton onClick={openCreateModal}>
-            <MdAdd size={16} />
-            약관 등록
-          </PrimaryButton>
         </ToolbarRight>
       </Toolbar>
 
       {/* ── 에러 메시지 ── */}
       {error && <ErrorMsg>{error}</ErrorMsg>}
 
-      {/* ── 목록 테이블 ── */}
+      {/* ── 게시글 목록 테이블 ── */}
       <TableWrap>
         <Table>
           <thead>
             <tr>
               <Th>제목</Th>
-              <Th $w="160px">유형</Th>
-              <Th $w="80px">버전</Th>
-              <Th $w="80px">필수</Th>
-              <Th $w="80px">활성</Th>
-              <Th $w="110px">생성일</Th>
+              <Th $w="80px">카테고리</Th>
+              <Th $w="110px">작성자 ID</Th>
+              <Th $w="70px">조회수</Th>
+              <Th $w="70px">좋아요</Th>
+              <Th $w="70px">댓글수</Th>
+              <Th $w="80px">블라인드</Th>
+              <Th $w="70px">삭제됨</Th>
+              <Th $w="140px">작성일</Th>
               <Th $w="100px">액션</Th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={7}>
+                <td colSpan={10}>
                   <CenterCell>불러오는 중...</CenterCell>
                 </td>
               </tr>
-            ) : terms.length === 0 ? (
+            ) : posts.length === 0 ? (
               <tr>
-                <td colSpan={7}>
-                  <CenterCell>등록된 약관이 없습니다.</CenterCell>
+                <td colSpan={10}>
+                  <CenterCell>게시글이 없습니다.</CenterCell>
                 </td>
               </tr>
             ) : (
-              terms.map((term) => (
-                <Tr key={term.id ?? term.termId}>
+              posts.map((post) => (
+                <Tr key={post.id}>
+                  {/* 제목 */}
                   <Td>
-                    <TitleText>{term.title}</TitleText>
+                    <TitleText>{post.title ?? '-'}</TitleText>
                   </Td>
+                  {/* 카테고리 */}
                   <Td>
                     <StatusBadge
                       status="info"
-                      label={TYPE_LABELS[term.type] ?? term.type ?? '-'}
+                      label={CATEGORY_LABELS[post.category] ?? post.category ?? '-'}
                     />
                   </Td>
-                  <Td>{term.version ?? '-'}</Td>
+                  {/* 작성자 ID */}
+                  <Td>
+                    <MutedText>{post.userId ?? '-'}</MutedText>
+                  </Td>
+                  {/* 조회수 */}
+                  <Td>
+                    <MutedText>{(post.viewCount ?? 0).toLocaleString()}</MutedText>
+                  </Td>
+                  {/* 좋아요 */}
+                  <Td>
+                    <MutedText>{(post.likeCount ?? 0).toLocaleString()}</MutedText>
+                  </Td>
+                  {/* 댓글수 */}
+                  <Td>
+                    <MutedText>{(post.commentCount ?? 0).toLocaleString()}</MutedText>
+                  </Td>
+                  {/* 블라인드 여부 */}
                   <Td>
                     <StatusBadge
-                      status={term.isRequired ? 'warning' : 'default'}
-                      label={term.isRequired ? '필수' : '선택'}
+                      status={post.isBlinded ? 'warning' : 'default'}
+                      label={post.isBlinded ? '블라인드' : '정상'}
                     />
                   </Td>
+                  {/* 삭제 여부 */}
                   <Td>
                     <StatusBadge
-                      status={term.isActive !== false ? 'success' : 'default'}
-                      label={term.isActive !== false ? '활성' : '비활성'}
+                      status={post.isDeleted ? 'error' : 'default'}
+                      label={post.isDeleted ? '삭제됨' : '-'}
                     />
                   </Td>
-                  <Td>{formatDate(term.createdAt)}</Td>
+                  {/* 작성일 */}
+                  <Td>
+                    <MutedText>{formatDate(post.createdAt)}</MutedText>
+                  </Td>
+                  {/* 액션 버튼 */}
                   <Td>
                     <ActionRow>
-                      <TextButton onClick={() => openEditModal(term)}>
+                      <TextButton onClick={() => openEditModal(post)}>
                         <MdEdit size={13} /> 수정
                       </TextButton>
-                      <DangerButton onClick={() => openDeleteDialog(term)}>
+                      <DangerButton onClick={() => openDeleteDialog(post)}>
                         <MdDelete size={13} /> 삭제
                       </DangerButton>
                     </ActionRow>
@@ -270,28 +321,23 @@ export default function TermsTab() {
           <PageButton onClick={() => setPage((p) => p - 1)} disabled={page === 0}>
             이전
           </PageButton>
-          <PageInfo>
-            {page + 1} / {totalPages}
-          </PageInfo>
-          <PageButton
-            onClick={() => setPage((p) => p + 1)}
-            disabled={page + 1 >= totalPages}
-          >
+          <PageInfo>{page + 1} / {totalPages}</PageInfo>
+          <PageButton onClick={() => setPage((p) => p + 1)} disabled={page + 1 >= totalPages}>
             다음
           </PageButton>
         </Pagination>
       )}
 
-      {/* ── 등록/수정 모달 ── */}
-      {modalOpen && (
-        <Overlay onClick={() => setModalOpen(false)}>
+      {/* ── 수정 모달 ── */}
+      {editTarget && (
+        <Overlay onClick={closeEditModal}>
           <Modal onClick={(e) => e.stopPropagation()}>
             <ModalHeader>
-              <ModalTitle>{editTarget ? '약관 수정' : '약관 등록'}</ModalTitle>
-              <CloseButton onClick={() => setModalOpen(false)}>✕</CloseButton>
+              <ModalTitle>게시글 수정</ModalTitle>
+              <CloseButton onClick={closeEditModal}>✕</CloseButton>
             </ModalHeader>
 
-            <ModalForm onSubmit={handleFormSubmit}>
+            <ModalForm onSubmit={handleEditSubmit}>
               {/* 제목 */}
               <FormRow>
                 <Label>제목 *</Label>
@@ -299,33 +345,21 @@ export default function TermsTab() {
                   name="title"
                   value={form.title}
                   onChange={handleFormChange}
-                  placeholder="약관 제목을 입력하세요"
+                  placeholder="게시글 제목"
                   maxLength={200}
                 />
               </FormRow>
 
-              {/* 유형 */}
+              {/* 카테고리 */}
               <FormRow>
-                <Label>유형 *</Label>
-                <StyledSelect name="type" value={form.type} onChange={handleFormChange}>
-                  {TERM_TYPES.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
+                <Label>카테고리 *</Label>
+                <Select name="category" value={form.category} onChange={handleFormChange}>
+                  {CATEGORY_OPTIONS.slice(1).map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
                     </option>
                   ))}
-                </StyledSelect>
-              </FormRow>
-
-              {/* 버전 */}
-              <FormRow>
-                <Label>버전 *</Label>
-                <Input
-                  name="version"
-                  value={form.version}
-                  onChange={handleFormChange}
-                  placeholder="예: 1.0, 2.1"
-                  maxLength={20}
-                />
+                </Select>
               </FormRow>
 
               {/* 내용 */}
@@ -335,28 +369,29 @@ export default function TermsTab() {
                   name="content"
                   value={form.content}
                   onChange={handleFormChange}
-                  placeholder="약관 본문을 입력하세요"
+                  placeholder="게시글 내용"
                   rows={8}
                 />
               </FormRow>
 
-              {/* 필수 여부 체크박스 */}
-              <CheckLabel>
-                <input
-                  type="checkbox"
-                  name="isRequired"
-                  checked={form.isRequired}
+              {/* 수정 사유 */}
+              <FormRow>
+                <Label>수정 사유 *</Label>
+                <Input
+                  name="editReason"
+                  value={form.editReason}
                   onChange={handleFormChange}
+                  placeholder="관리자 수정 사유를 입력해주세요."
+                  maxLength={500}
                 />
-                필수 동의 약관
-              </CheckLabel>
+              </FormRow>
 
               <ModalFooter>
-                <CancelButton type="button" onClick={() => setModalOpen(false)}>
+                <CancelButton type="button" onClick={closeEditModal}>
                   취소
                 </CancelButton>
                 <SubmitButton type="submit" disabled={formLoading}>
-                  {formLoading ? '저장 중...' : editTarget ? '수정 완료' : '등록'}
+                  {formLoading ? '저장 중...' : '수정 완료'}
                 </SubmitButton>
               </ModalFooter>
             </ModalForm>
@@ -366,16 +401,15 @@ export default function TermsTab() {
 
       {/* ── 삭제 확인 다이얼로그 ── */}
       {deleteTarget && (
-        <Overlay onClick={() => setDeleteTarget(null)}>
+        <Overlay onClick={closeDeleteDialog}>
           <DialogBox onClick={(e) => e.stopPropagation()}>
-            <DialogTitle>약관 삭제</DialogTitle>
+            <DialogTitle>게시글 삭제</DialogTitle>
             <DialogDesc>
               <strong>"{deleteTarget.title}"</strong>을(를) 삭제합니다.
-              <br />
-              이 작업은 되돌릴 수 없습니다.
+              <br />이 작업은 되돌릴 수 없습니다.
             </DialogDesc>
             <DialogFooter>
-              <CancelButton onClick={() => setDeleteTarget(null)}>취소</CancelButton>
+              <CancelButton onClick={closeDeleteDialog}>취소</CancelButton>
               <DeleteConfirmButton onClick={handleDelete} disabled={deleteLoading}>
                 {deleteLoading ? '삭제 중...' : '삭제'}
               </DeleteConfirmButton>
@@ -403,6 +437,8 @@ const Toolbar = styled.div`
 const ToolbarLeft = styled.div`
   display: flex;
   align-items: center;
+  gap: ${({ theme }) => theme.spacing.sm};
+  flex-wrap: wrap;
 `;
 
 const ToolbarRight = styled.div`
@@ -411,10 +447,42 @@ const ToolbarRight = styled.div`
   gap: ${({ theme }) => theme.spacing.sm};
 `;
 
-const SectionTitle = styled.h3`
-  font-size: ${({ theme }) => theme.fontSizes.lg};
-  font-weight: ${({ theme }) => theme.fontWeights.semibold};
-  color: ${({ theme }) => theme.colors.textPrimary};
+/** 검색 input + 버튼 묶음 */
+const SearchWrap = styled.div`
+  display: flex;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  overflow: hidden;
+`;
+
+const SearchInput = styled.input`
+  padding: 6px 10px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  border: none;
+  outline: none;
+  width: 200px;
+`;
+
+const SearchButton = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  background: ${({ theme }) => theme.colors.bgHover};
+  border-left: 1px solid ${({ theme }) => theme.colors.border};
+  color: ${({ theme }) => theme.colors.textSecondary};
+  transition: background ${({ theme }) => theme.transitions.fast};
+  &:hover { background: ${({ theme }) => theme.colors.border}; }
+`;
+
+const FilterSelect = styled.select`
+  padding: 6px 10px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  outline: none;
+  background: white;
+  &:focus { border-color: ${({ theme }) => theme.colors.primary}; }
 `;
 
 const IconButton = styled.button`
@@ -427,28 +495,8 @@ const IconButton = styled.button`
   border-radius: 4px;
   color: ${({ theme }) => theme.colors.textSecondary};
   transition: background ${({ theme }) => theme.transitions.fast};
-  &:hover {
-    background: ${({ theme }) => theme.colors.bgHover};
-  }
-  &:disabled {
-    opacity: 0.4;
-  }
-`;
-
-const PrimaryButton = styled.button`
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 14px;
-  font-size: ${({ theme }) => theme.fontSizes.sm};
-  font-weight: ${({ theme }) => theme.fontWeights.medium};
-  background: ${({ theme }) => theme.colors.primary};
-  color: #fff;
-  border-radius: 4px;
-  transition: background ${({ theme }) => theme.transitions.fast};
-  &:hover {
-    background: ${({ theme }) => theme.colors.primaryHover};
-  }
+  &:hover { background: ${({ theme }) => theme.colors.bgHover}; }
+  &:disabled { opacity: 0.4; }
 `;
 
 const ErrorMsg = styled.p`
@@ -486,12 +534,8 @@ const Th = styled.th`
 
 const Tr = styled.tr`
   border-bottom: 1px solid ${({ theme }) => theme.colors.borderLight};
-  &:last-child {
-    border-bottom: none;
-  }
-  &:hover {
-    background: ${({ theme }) => theme.colors.bgHover};
-  }
+  &:last-child { border-bottom: none; }
+  &:hover { background: ${({ theme }) => theme.colors.bgHover}; }
 `;
 
 const Td = styled.td`
@@ -501,12 +545,17 @@ const Td = styled.td`
 `;
 
 const TitleText = styled.span`
-  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  display: block;
+  max-width: 280px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 280px;
-  display: block;
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+`;
+
+const MutedText = styled.span`
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: ${({ theme }) => theme.fontSizes.xs};
 `;
 
 const ActionRow = styled.div`
@@ -558,12 +607,8 @@ const PageButton = styled.button`
   border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: 4px;
   color: ${({ theme }) => theme.colors.textSecondary};
-  &:hover:not(:disabled) {
-    background: ${({ theme }) => theme.colors.bgHover};
-  }
-  &:disabled {
-    opacity: 0.4;
-  }
+  &:hover:not(:disabled) { background: ${({ theme }) => theme.colors.bgHover}; }
+  &:disabled { opacity: 0.4; }
 `;
 
 const PageInfo = styled.span`
@@ -587,7 +632,7 @@ const Modal = styled.div`
   background: ${({ theme }) => theme.colors.bgCard};
   border-radius: ${({ theme }) => theme.layout.cardRadius};
   width: 100%;
-  max-width: 580px;
+  max-width: 600px;
   max-height: 90vh;
   overflow-y: auto;
   box-shadow: ${({ theme }) => theme.shadows.lg};
@@ -609,9 +654,7 @@ const ModalTitle = styled.h3`
 const CloseButton = styled.button`
   font-size: ${({ theme }) => theme.fontSizes.md};
   color: ${({ theme }) => theme.colors.textMuted};
-  &:hover {
-    color: ${({ theme }) => theme.colors.textPrimary};
-  }
+  &:hover { color: ${({ theme }) => theme.colors.textPrimary}; }
 `;
 
 const ModalForm = styled.form`
@@ -639,23 +682,17 @@ const Input = styled.input`
   border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: 4px;
   outline: none;
-  width: 100%;
-  &:focus {
-    border-color: ${({ theme }) => theme.colors.primary};
-  }
+  &:focus { border-color: ${({ theme }) => theme.colors.primary}; }
 `;
 
-const StyledSelect = styled.select`
+const Select = styled.select`
   padding: 8px 12px;
   font-size: ${({ theme }) => theme.fontSizes.sm};
   border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: 4px;
   outline: none;
   background: white;
-  width: 100%;
-  &:focus {
-    border-color: ${({ theme }) => theme.colors.primary};
-  }
+  &:focus { border-color: ${({ theme }) => theme.colors.primary}; }
 `;
 
 const Textarea = styled.textarea`
@@ -666,20 +703,7 @@ const Textarea = styled.textarea`
   resize: vertical;
   outline: none;
   line-height: 1.6;
-  width: 100%;
-  &:focus {
-    border-color: ${({ theme }) => theme.colors.primary};
-  }
-`;
-
-const CheckLabel = styled.label`
-  display: flex;
-  align-items: center;
-  gap: ${({ theme }) => theme.spacing.xs};
-  font-size: ${({ theme }) => theme.fontSizes.sm};
-  color: ${({ theme }) => theme.colors.textSecondary};
-  cursor: pointer;
-  user-select: none;
+  &:focus { border-color: ${({ theme }) => theme.colors.primary}; }
 `;
 
 const ModalFooter = styled.div`
@@ -695,9 +719,7 @@ const CancelButton = styled.button`
   border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: 4px;
   color: ${({ theme }) => theme.colors.textSecondary};
-  &:hover {
-    background: ${({ theme }) => theme.colors.bgHover};
-  }
+  &:hover { background: ${({ theme }) => theme.colors.bgHover}; }
 `;
 
 const SubmitButton = styled.button`
@@ -707,12 +729,8 @@ const SubmitButton = styled.button`
   background: ${({ theme }) => theme.colors.primary};
   color: #fff;
   border-radius: 4px;
-  &:hover:not(:disabled) {
-    background: ${({ theme }) => theme.colors.primaryHover};
-  }
-  &:disabled {
-    opacity: 0.5;
-  }
+  &:hover:not(:disabled) { background: ${({ theme }) => theme.colors.primaryHover}; }
+  &:disabled { opacity: 0.5; }
 `;
 
 /* ── 삭제 다이얼로그 ── */
@@ -752,10 +770,6 @@ const DeleteConfirmButton = styled.button`
   background: ${({ theme }) => theme.colors.error};
   color: #fff;
   border-radius: 4px;
-  &:hover:not(:disabled) {
-    opacity: 0.85;
-  }
-  &:disabled {
-    opacity: 0.5;
-  }
+  &:hover:not(:disabled) { opacity: 0.85; }
+  &:disabled { opacity: 0.5; }
 `;

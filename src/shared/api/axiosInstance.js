@@ -165,7 +165,12 @@ backendApi.interceptors.request.use(async (config) => {
 
 /* ── Backend: 401 응답 시 뮤텍스 refresh + 재시도 ── */
 backendApi.interceptors.response.use(
-  (response) => response.data,
+  /*
+   * ApiResponse<T> 자동 언래핑.
+   * 백엔드 응답이 { success, data, error } 래퍼이면 data 필드만 꺼내고,
+   * LoginFilter 등 래퍼 없이 직접 JSON을 반환하는 엔드포인트는 그대로 통과.
+   */
+  (response) => response.data?.data ?? response.data,
   async (error) => {
     const originalRequest = error.config;
     const isRefreshReq = originalRequest.url?.includes(AUTH_ENDPOINTS.REFRESH);
