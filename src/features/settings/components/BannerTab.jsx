@@ -1,125 +1,893 @@
 /**
  * 배너 관리 서브탭.
- * 배너 CRUD + 목록 테이블.
+ *
+ * 기능:
+ * - 배너 목록 테이블 (제목, 이미지 썸네일, 링크, 위치, 순서, 활성여부, 기간, 액션)
+ * - 등록/수정 모달 (title, imageUrl, linkUrl, position, sortOrder, isActive, startDate, endDate)
+ * - 삭제 확인 다이얼로그
+ * - 페이지네이션 (10건/페이지)
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
+import { MdAdd, MdEdit, MdDelete, MdRefresh, MdBrokenImage } from 'react-icons/md';
 import { fetchBanners, createBanner, updateBanner, deleteBanner } from '../api/settingsApi';
+import StatusBadge from '@/shared/components/StatusBadge';
+
+/** 배너 위치 옵션 */
+const POSITIONS = [
+  { value: 'MAIN', label: '메인' },
+  { value: 'SUB', label: '서브' },
+  { value: 'POPUP', label: '팝업' },
+];
+
+/** 위치 한국어 라벨 맵 */
+const POSITION_LABELS = {
+  MAIN: '메인',
+  SUB: '서브',
+  POPUP: '팝업',
+};
+
+/** 등록/수정 모달 초기값 */
+const INITIAL_FORM = {
+  title: '',
+  imageUrl: '',
+  linkUrl: '',
+  position: 'MAIN',
+  sortOrder: 0,
+  isActive: true,
+  startDate: '',
+  endDate: '',
+};
+
+/** 날짜 포맷 함수 (날짜만) */
+function formatDate(dateStr) {
+  if (!dateStr) return '-';
+  return new Date(dateStr).toLocaleDateString('ko-KR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+}
+
+/** 날짜 범위 문자열 조합 */
+function formatDateRange(startDate, endDate) {
+  const start = formatDate(startDate);
+  const end = formatDate(endDate);
+  if (start === '-' && end === '-') return '-';
+  return `${start} ~ ${end}`;
+}
+
+/** date input용 날짜 포맷 (YYYY-MM-DD) */
+function toDateInputValue(dateStr) {
+  if (!dateStr) return '';
+  return new Date(dateStr).toISOString().slice(0, 10);
+}
 
 export default function BannerTab() {
+  /* ── 목록 상태 ── */
   const [banners, setBanners] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingBanner, setEditingBanner] = useState(null);
-  const [form, setForm] = useState({ title: '', imageUrl: '', linkUrl: '', displayOrder: 0, isActive: true });
 
+  /* ── 페이지네이션 상태 ── */
+  const [page, setPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const PAGE_SIZE = 10;
+
+  /* ── 등록/수정 모달 상태 ── */
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState(null); // null: 신규, Object: 수정 대상
+  const [form, setForm] = useState(INITIAL_FORM);
+  const [formLoading, setFormLoading] = useState(false);
+
+  /* ── 삭제 확인 다이얼로그 상태 ── */
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  /** 배너 목록 조회 */
   const loadBanners = useCallback(async () => {
-    setLoading(true);
-    setError(null);
     try {
-      const data = await fetchBanners();
-      setBanners(Array.isArray(data) ? data : data?.content || []);
+      setLoading(true);
+      setError(null);
+      const result = await fetchBanners({ page, size: PAGE_SIZE });
+      setBanners(result?.content ?? (Array.isArray(result) ? result : []));
+      setTotalPages(result?.totalPages ?? 0);
     } catch (err) {
-      setError(err.message);
+      setError(err.message ?? '배너 목록 조회에 실패했습니다.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page]);
 
-  useEffect(() => { loadBanners(); }, [loadBanners]);
+  useEffect(() => {
+    loadBanners();
+  }, [loadBanners]);
 
-  const openModal = (banner = null) => {
-    if (banner) {
-      setEditingBanner(banner);
-      setForm({ title: banner.title, imageUrl: banner.imageUrl, linkUrl: banner.linkUrl, displayOrder: banner.displayOrder, isActive: banner.isActive });
-    } else {
-      setEditingBanner(null);
-      setForm({ title: '', imageUrl: '', linkUrl: '', displayOrder: 0, isActive: true });
-    }
+  /* ── 모달 열기 (신규 등록) ── */
+  function openCreateModal() {
+    setEditTarget(null);
+    setForm(INITIAL_FORM);
     setModalOpen(true);
-  };
+  }
 
-  const handleSave = async () => {
+  /* ── 모달 열기 (수정) ── */
+  function openEditModal(banner) {
+    setEditTarget(banner);
+    setForm({
+      title: banner.title ?? '',
+      imageUrl: banner.imageUrl ?? '',
+      linkUrl: banner.linkUrl ?? '',
+      position: banner.position ?? 'MAIN',
+      sortOrder: banner.sortOrder ?? 0,
+      isActive: banner.isActive !== false,
+      startDate: toDateInputValue(banner.startDate),
+      endDate: toDateInputValue(banner.endDate),
+    });
+    setModalOpen(true);
+  }
+
+  /** 폼 필드 변경 핸들러 */
+  function handleFormChange(e) {
+    const { name, value, type, checked } = e.target;
+    setForm((prev) => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : type === 'number' ? Number(value) : value,
+    }));
+  }
+
+  /** 등록/수정 제출 */
+  async function handleFormSubmit(e) {
+    e.preventDefault();
+    if (!form.title.trim()) {
+      alert('제목을 입력해주세요.');
+      return;
+    }
+    if (!form.imageUrl.trim()) {
+      alert('이미지 URL을 입력해주세요.');
+      return;
+    }
+
     try {
-      if (editingBanner) {
-        await updateBanner(editingBanner.id || editingBanner.bannerId, form);
+      setFormLoading(true);
+      // 날짜 빈 문자열은 null로 변환
+      const payload = {
+        ...form,
+        startDate: form.startDate || null,
+        endDate: form.endDate || null,
+      };
+      const id = editTarget?.id ?? editTarget?.bannerId;
+      if (editTarget) {
+        await updateBanner(id, payload);
       } else {
-        await createBanner(form);
+        await createBanner(payload);
       }
       setModalOpen(false);
+      if (!editTarget) setPage(0);
+      else loadBanners();
+    } catch (err) {
+      alert(err.message ?? '처리 중 오류가 발생했습니다.');
+    } finally {
+      setFormLoading(false);
+    }
+  }
+
+  /* ── 삭제 다이얼로그 오픈 ── */
+  function openDeleteDialog(banner) {
+    setDeleteTarget(banner);
+  }
+
+  /** 삭제 실행 */
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    try {
+      setDeleteLoading(true);
+      const id = deleteTarget.id ?? deleteTarget.bannerId;
+      await deleteBanner(id);
+      setDeleteTarget(null);
       loadBanners();
     } catch (err) {
-      alert(err.message);
+      alert(err.message ?? '삭제 중 오류가 발생했습니다.');
+    } finally {
+      setDeleteLoading(false);
     }
-  };
-
-  const handleDelete = async (id) => {
-    if (!window.confirm('정말 삭제하시겠습니까?')) return;
-    try { await deleteBanner(id); loadBanners(); } catch (err) { alert(err.message); }
-  };
+  }
 
   return (
-    <Wrapper>
-      <Header>
-        <h3>배너 관리</h3>
-        <AddButton onClick={() => openModal()}>+ 배너 등록</AddButton>
-      </Header>
-      {loading && <Message>로딩 중...</Message>}
-      {error && <Message $error>오류: {error}</Message>}
-      <Table>
-        <thead><tr><th>제목</th><th>이미지</th><th>순서</th><th>활성</th><th>액션</th></tr></thead>
-        <tbody>
-          {banners.map((b) => (
-            <tr key={b.id || b.bannerId}>
-              <td>{b.title}</td>
-              <td>{b.imageUrl ? <Thumb src={b.imageUrl} alt="" /> : '-'}</td>
-              <td>{b.displayOrder}</td>
-              <td>{b.isActive ? '활성' : '비활성'}</td>
-              <td>
-                <ActionBtn onClick={() => openModal(b)}>수정</ActionBtn>
-                <ActionBtn $danger onClick={() => handleDelete(b.id || b.bannerId)}>삭제</ActionBtn>
-              </td>
-            </tr>
-          ))}
-          {!loading && banners.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center' }}>등록된 배너가 없습니다.</td></tr>}
-        </tbody>
-      </Table>
+    <Container>
+      {/* ── 툴바 ── */}
+      <Toolbar>
+        <ToolbarLeft>
+          <SectionTitle>배너 관리</SectionTitle>
+        </ToolbarLeft>
+        <ToolbarRight>
+          <IconButton onClick={loadBanners} disabled={loading} title="새로고침">
+            <MdRefresh size={16} />
+          </IconButton>
+          <PrimaryButton onClick={openCreateModal}>
+            <MdAdd size={16} />
+            배너 등록
+          </PrimaryButton>
+        </ToolbarRight>
+      </Toolbar>
 
+      {/* ── 에러 메시지 ── */}
+      {error && <ErrorMsg>{error}</ErrorMsg>}
+
+      {/* ── 목록 테이블 ── */}
+      <TableWrap>
+        <Table>
+          <thead>
+            <tr>
+              <Th>제목</Th>
+              <Th $w="80px">이미지</Th>
+              <Th $w="180px">링크 URL</Th>
+              <Th $w="70px">위치</Th>
+              <Th $w="60px">순서</Th>
+              <Th $w="70px">활성</Th>
+              <Th $w="180px">기간</Th>
+              <Th $w="100px">액션</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan={8}>
+                  <CenterCell>불러오는 중...</CenterCell>
+                </td>
+              </tr>
+            ) : banners.length === 0 ? (
+              <tr>
+                <td colSpan={8}>
+                  <CenterCell>등록된 배너가 없습니다.</CenterCell>
+                </td>
+              </tr>
+            ) : (
+              banners.map((banner) => (
+                <Tr key={banner.id ?? banner.bannerId}>
+                  <Td>
+                    <TitleText>{banner.title}</TitleText>
+                  </Td>
+                  <Td>
+                    {/* 이미지 URL이 있으면 썸네일, 없으면 아이콘 */}
+                    {banner.imageUrl ? (
+                      <Thumbnail
+                        src={banner.imageUrl}
+                        alt={banner.title}
+                        onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
+                      />
+                    ) : (
+                      <NoImage><MdBrokenImage size={18} /></NoImage>
+                    )}
+                    <NoImage style={{ display: 'none' }}>
+                      <MdBrokenImage size={18} />
+                    </NoImage>
+                  </Td>
+                  <Td>
+                    {banner.linkUrl ? (
+                      <LinkText href={banner.linkUrl} target="_blank" rel="noreferrer">
+                        {banner.linkUrl.length > 30
+                          ? banner.linkUrl.slice(0, 30) + '…'
+                          : banner.linkUrl}
+                      </LinkText>
+                    ) : (
+                      <MutedText>-</MutedText>
+                    )}
+                  </Td>
+                  <Td>
+                    <StatusBadge
+                      status="info"
+                      label={POSITION_LABELS[banner.position] ?? banner.position ?? '-'}
+                    />
+                  </Td>
+                  <Td>{banner.sortOrder ?? 0}</Td>
+                  <Td>
+                    <StatusBadge
+                      status={banner.isActive !== false ? 'success' : 'default'}
+                      label={banner.isActive !== false ? '활성' : '비활성'}
+                    />
+                  </Td>
+                  <Td>
+                    <DateRangeText>
+                      {formatDateRange(banner.startDate, banner.endDate)}
+                    </DateRangeText>
+                  </Td>
+                  <Td>
+                    <ActionRow>
+                      <TextButton onClick={() => openEditModal(banner)}>
+                        <MdEdit size={13} /> 수정
+                      </TextButton>
+                      <DangerButton onClick={() => openDeleteDialog(banner)}>
+                        <MdDelete size={13} /> 삭제
+                      </DangerButton>
+                    </ActionRow>
+                  </Td>
+                </Tr>
+              ))
+            )}
+          </tbody>
+        </Table>
+      </TableWrap>
+
+      {/* ── 페이지네이션 ── */}
+      {totalPages > 1 && (
+        <Pagination>
+          <PageButton onClick={() => setPage((p) => p - 1)} disabled={page === 0}>
+            이전
+          </PageButton>
+          <PageInfo>
+            {page + 1} / {totalPages}
+          </PageInfo>
+          <PageButton
+            onClick={() => setPage((p) => p + 1)}
+            disabled={page + 1 >= totalPages}
+          >
+            다음
+          </PageButton>
+        </Pagination>
+      )}
+
+      {/* ── 등록/수정 모달 ── */}
       {modalOpen && (
         <Overlay onClick={() => setModalOpen(false)}>
           <Modal onClick={(e) => e.stopPropagation()}>
-            <h4>{editingBanner ? '배너 수정' : '배너 등록'}</h4>
-            <Label>제목</Label>
-            <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-            <Label>이미지 URL</Label>
-            <Input value={form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} placeholder="https://..." />
-            <Label>링크 URL</Label>
-            <Input value={form.linkUrl} onChange={(e) => setForm({ ...form, linkUrl: e.target.value })} placeholder="https://..." />
-            <Label>표시 순서</Label>
-            <Input type="number" value={form.displayOrder} onChange={(e) => setForm({ ...form, displayOrder: Number(e.target.value) })} />
-            <Label><input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} /> 활성</Label>
-            <ModalActions>
-              <ActionBtn onClick={() => setModalOpen(false)}>취소</ActionBtn>
-              <ActionBtn $primary onClick={handleSave}>저장</ActionBtn>
-            </ModalActions>
+            <ModalHeader>
+              <ModalTitle>{editTarget ? '배너 수정' : '배너 등록'}</ModalTitle>
+              <CloseButton onClick={() => setModalOpen(false)}>✕</CloseButton>
+            </ModalHeader>
+
+            <ModalForm onSubmit={handleFormSubmit}>
+              {/* 제목 */}
+              <FormRow>
+                <Label>제목 *</Label>
+                <Input
+                  name="title"
+                  value={form.title}
+                  onChange={handleFormChange}
+                  placeholder="배너 제목을 입력하세요"
+                  maxLength={200}
+                />
+              </FormRow>
+
+              {/* 이미지 URL */}
+              <FormRow>
+                <Label>이미지 URL *</Label>
+                <Input
+                  name="imageUrl"
+                  value={form.imageUrl}
+                  onChange={handleFormChange}
+                  placeholder="https://example.com/image.jpg"
+                />
+                {/* 이미지 미리보기 */}
+                {form.imageUrl && (
+                  <PreviewWrap>
+                    <PreviewImg src={form.imageUrl} alt="미리보기" />
+                  </PreviewWrap>
+                )}
+              </FormRow>
+
+              {/* 링크 URL */}
+              <FormRow>
+                <Label>링크 URL</Label>
+                <Input
+                  name="linkUrl"
+                  value={form.linkUrl}
+                  onChange={handleFormChange}
+                  placeholder="https://example.com/page"
+                />
+              </FormRow>
+
+              {/* 위치 + 순서 (2열 배치) */}
+              <FormRowDouble>
+                <FormRow>
+                  <Label>위치 *</Label>
+                  <StyledSelect name="position" value={form.position} onChange={handleFormChange}>
+                    {POSITIONS.map((p) => (
+                      <option key={p.value} value={p.value}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </StyledSelect>
+                </FormRow>
+                <FormRow>
+                  <Label>표시 순서</Label>
+                  <Input
+                    type="number"
+                    name="sortOrder"
+                    value={form.sortOrder}
+                    onChange={handleFormChange}
+                    min={0}
+                  />
+                </FormRow>
+              </FormRowDouble>
+
+              {/* 기간 (시작일 ~ 종료일) */}
+              <FormRowDouble>
+                <FormRow>
+                  <Label>시작일</Label>
+                  <Input
+                    type="date"
+                    name="startDate"
+                    value={form.startDate}
+                    onChange={handleFormChange}
+                  />
+                </FormRow>
+                <FormRow>
+                  <Label>종료일</Label>
+                  <Input
+                    type="date"
+                    name="endDate"
+                    value={form.endDate}
+                    onChange={handleFormChange}
+                  />
+                </FormRow>
+              </FormRowDouble>
+
+              {/* 활성 여부 체크박스 */}
+              <CheckLabel>
+                <input
+                  type="checkbox"
+                  name="isActive"
+                  checked={form.isActive}
+                  onChange={handleFormChange}
+                />
+                배너 활성화
+              </CheckLabel>
+
+              <ModalFooter>
+                <CancelButton type="button" onClick={() => setModalOpen(false)}>
+                  취소
+                </CancelButton>
+                <SubmitButton type="submit" disabled={formLoading}>
+                  {formLoading ? '저장 중...' : editTarget ? '수정 완료' : '등록'}
+                </SubmitButton>
+              </ModalFooter>
+            </ModalForm>
           </Modal>
         </Overlay>
       )}
-    </Wrapper>
+
+      {/* ── 삭제 확인 다이얼로그 ── */}
+      {deleteTarget && (
+        <Overlay onClick={() => setDeleteTarget(null)}>
+          <DialogBox onClick={(e) => e.stopPropagation()}>
+            <DialogTitle>배너 삭제</DialogTitle>
+            <DialogDesc>
+              <strong>"{deleteTarget.title}"</strong>을(를) 삭제합니다.
+              <br />
+              이 작업은 되돌릴 수 없습니다.
+            </DialogDesc>
+            <DialogFooter>
+              <CancelButton onClick={() => setDeleteTarget(null)}>취소</CancelButton>
+              <DeleteConfirmButton onClick={handleDelete} disabled={deleteLoading}>
+                {deleteLoading ? '삭제 중...' : '삭제'}
+              </DeleteConfirmButton>
+            </DialogFooter>
+          </DialogBox>
+        </Overlay>
+      )}
+    </Container>
   );
 }
 
-const Wrapper = styled.div``;
-const Header = styled.div`display:flex;justify-content:space-between;align-items:center;margin-bottom:${({theme})=>theme.spacing.lg};h3{font-size:${({theme})=>theme.fontSizes.lg};}`;
-const AddButton = styled.button`padding:${({theme})=>theme.spacing.sm} ${({theme})=>theme.spacing.md};background:${({theme})=>theme.colors.primary};color:#fff;border:none;border-radius:${({theme})=>theme.radii.md};cursor:pointer;font-size:${({theme})=>theme.fontSizes.sm};`;
-const Message = styled.p`text-align:center;padding:${({theme})=>theme.spacing.lg};color:${({$error,theme})=>$error?theme.colors.danger:theme.colors.textMuted};`;
-const Table = styled.table`width:100%;border-collapse:collapse;th,td{padding:${({theme})=>theme.spacing.sm} ${({theme})=>theme.spacing.md};text-align:left;border-bottom:1px solid ${({theme})=>theme.colors.border};}th{font-weight:${({theme})=>theme.fontWeights.semibold};font-size:${({theme})=>theme.fontSizes.sm};color:${({theme})=>theme.colors.textMuted};}`;
-const Thumb = styled.img`width:60px;height:30px;object-fit:cover;border-radius:4px;`;
-const ActionBtn = styled.button`padding:4px 10px;margin-right:4px;border:1px solid ${({$danger,$primary,theme})=>$danger?theme.colors.danger:$primary?theme.colors.primary:theme.colors.border};background:${({$danger,$primary,theme})=>$danger?theme.colors.danger:$primary?theme.colors.primary:'transparent'};color:${({$danger,$primary})=>$danger||$primary?'#fff':'inherit'};border-radius:${({theme})=>theme.radii.sm};cursor:pointer;font-size:${({theme})=>theme.fontSizes.xs};`;
-const Overlay = styled.div`position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1000;`;
-const Modal = styled.div`background:${({theme})=>theme.colors.bgCard};border-radius:${({theme})=>theme.radii.lg};padding:${({theme})=>theme.spacing.xl};width:500px;h4{margin-bottom:${({theme})=>theme.spacing.md};}`;
-const Label = styled.label`display:block;margin:${({theme})=>theme.spacing.sm} 0 4px;font-size:${({theme})=>theme.fontSizes.sm};font-weight:${({theme})=>theme.fontWeights.semibold};`;
-const Input = styled.input`width:100%;padding:${({theme})=>theme.spacing.sm};border:1px solid ${({theme})=>theme.colors.border};border-radius:${({theme})=>theme.radii.sm};font-size:${({theme})=>theme.fontSizes.sm};`;
-const ModalActions = styled.div`display:flex;justify-content:flex-end;gap:${({theme})=>theme.spacing.sm};margin-top:${({theme})=>theme.spacing.lg};`;
+/* ── styled-components ── */
+
+const Container = styled.div``;
+
+const Toolbar = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: ${({ theme }) => theme.spacing.lg};
+  flex-wrap: wrap;
+  gap: ${({ theme }) => theme.spacing.sm};
+`;
+
+const ToolbarLeft = styled.div`
+  display: flex;
+  align-items: center;
+`;
+
+const ToolbarRight = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.sm};
+`;
+
+const SectionTitle = styled.h3`
+  font-size: ${({ theme }) => theme.fontSizes.lg};
+  font-weight: ${({ theme }) => theme.fontWeights.semibold};
+  color: ${({ theme }) => theme.colors.textPrimary};
+`;
+
+const IconButton = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  transition: background ${({ theme }) => theme.transitions.fast};
+  &:hover {
+    background: ${({ theme }) => theme.colors.bgHover};
+  }
+  &:disabled {
+    opacity: 0.4;
+  }
+`;
+
+const PrimaryButton = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  background: ${({ theme }) => theme.colors.primary};
+  color: #fff;
+  border-radius: 4px;
+  transition: background ${({ theme }) => theme.transitions.fast};
+  &:hover {
+    background: ${({ theme }) => theme.colors.primaryHover};
+  }
+`;
+
+const ErrorMsg = styled.p`
+  color: ${({ theme }) => theme.colors.error};
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  margin-bottom: ${({ theme }) => theme.spacing.md};
+  padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.md};
+  background: ${({ theme }) => theme.colors.errorBg};
+  border-radius: 4px;
+`;
+
+const TableWrap = styled.div`
+  overflow-x: auto;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: ${({ theme }) => theme.layout.cardRadius};
+`;
+
+const Table = styled.table`
+  width: 100%;
+  border-collapse: collapse;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+`;
+
+const Th = styled.th`
+  text-align: left;
+  padding: 10px 12px;
+  background: ${({ theme }) => theme.colors.bgHover};
+  border-bottom: 1px solid ${({ theme }) => theme.colors.border};
+  font-weight: ${({ theme }) => theme.fontWeights.semibold};
+  color: ${({ theme }) => theme.colors.textSecondary};
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  white-space: nowrap;
+  width: ${({ $w }) => $w ?? 'auto'};
+`;
+
+const Tr = styled.tr`
+  border-bottom: 1px solid ${({ theme }) => theme.colors.borderLight};
+  &:last-child {
+    border-bottom: none;
+  }
+  &:hover {
+    background: ${({ theme }) => theme.colors.bgHover};
+  }
+`;
+
+const Td = styled.td`
+  padding: 10px 12px;
+  color: ${({ theme }) => theme.colors.textPrimary};
+  vertical-align: middle;
+`;
+
+const TitleText = styled.span`
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+  display: block;
+`;
+
+const Thumbnail = styled.img`
+  width: 56px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 3px;
+  border: 1px solid ${({ theme }) => theme.colors.borderLight};
+  display: block;
+`;
+
+const NoImage = styled.div`
+  width: 56px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  border: 1px solid ${({ theme }) => theme.colors.borderLight};
+  background: ${({ theme }) => theme.colors.bgHover};
+  color: ${({ theme }) => theme.colors.textMuted};
+`;
+
+const LinkText = styled.a`
+  color: ${({ theme }) => theme.colors.primary};
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  text-decoration: none;
+  &:hover {
+    text-decoration: underline;
+  }
+`;
+
+const MutedText = styled.span`
+  color: ${({ theme }) => theme.colors.textMuted};
+`;
+
+const DateRangeText = styled.span`
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.textSecondary};
+  white-space: nowrap;
+`;
+
+const ActionRow = styled.div`
+  display: flex;
+  gap: ${({ theme }) => theme.spacing.xs};
+`;
+
+const TextButton = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 8px;
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 3px;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  transition: all ${({ theme }) => theme.transitions.fast};
+  &:hover {
+    border-color: ${({ theme }) => theme.colors.primary};
+    color: ${({ theme }) => theme.colors.primary};
+  }
+`;
+
+const DangerButton = styled(TextButton)`
+  &:hover {
+    border-color: ${({ theme }) => theme.colors.error};
+    color: ${({ theme }) => theme.colors.error};
+  }
+`;
+
+const CenterCell = styled.div`
+  text-align: center;
+  padding: ${({ theme }) => theme.spacing.xxxl};
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+`;
+
+const Pagination = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: ${({ theme }) => theme.spacing.md};
+  margin-top: ${({ theme }) => theme.spacing.lg};
+`;
+
+const PageButton = styled.button`
+  padding: 5px 14px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  &:hover:not(:disabled) {
+    background: ${({ theme }) => theme.colors.bgHover};
+  }
+  &:disabled {
+    opacity: 0.4;
+  }
+`;
+
+const PageInfo = styled.span`
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  color: ${({ theme }) => theme.colors.textMuted};
+`;
+
+/* ── 모달 공통 ── */
+
+const Overlay = styled.div`
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+`;
+
+const Modal = styled.div`
+  background: ${({ theme }) => theme.colors.bgCard};
+  border-radius: ${({ theme }) => theme.layout.cardRadius};
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: ${({ theme }) => theme.shadows.lg};
+`;
+
+const ModalHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: ${({ theme }) => theme.spacing.xl};
+  border-bottom: 1px solid ${({ theme }) => theme.colors.border};
+`;
+
+const ModalTitle = styled.h3`
+  font-size: ${({ theme }) => theme.fontSizes.lg};
+  font-weight: ${({ theme }) => theme.fontWeights.semibold};
+`;
+
+const CloseButton = styled.button`
+  font-size: ${({ theme }) => theme.fontSizes.md};
+  color: ${({ theme }) => theme.colors.textMuted};
+  &:hover {
+    color: ${({ theme }) => theme.colors.textPrimary};
+  }
+`;
+
+const ModalForm = styled.form`
+  padding: ${({ theme }) => theme.spacing.xl};
+  display: flex;
+  flex-direction: column;
+  gap: ${({ theme }) => theme.spacing.lg};
+`;
+
+const FormRow = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: ${({ theme }) => theme.spacing.xs};
+`;
+
+/* 두 열 나란히 배치 래퍼 */
+const FormRowDouble = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: ${({ theme }) => theme.spacing.md};
+`;
+
+const Label = styled.label`
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  color: ${({ theme }) => theme.colors.textSecondary};
+`;
+
+const Input = styled.input`
+  padding: 8px 12px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  outline: none;
+  width: 100%;
+  &:focus {
+    border-color: ${({ theme }) => theme.colors.primary};
+  }
+`;
+
+const StyledSelect = styled.select`
+  padding: 8px 12px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  outline: none;
+  background: white;
+  width: 100%;
+  &:focus {
+    border-color: ${({ theme }) => theme.colors.primary};
+  }
+`;
+
+/* 이미지 미리보기 영역 */
+const PreviewWrap = styled.div`
+  margin-top: ${({ theme }) => theme.spacing.xs};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  overflow: hidden;
+  max-width: 200px;
+`;
+
+const PreviewImg = styled.img`
+  width: 100%;
+  height: 80px;
+  object-fit: cover;
+  display: block;
+`;
+
+const CheckLabel = styled.label`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.xs};
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  color: ${({ theme }) => theme.colors.textSecondary};
+  cursor: pointer;
+  user-select: none;
+`;
+
+const ModalFooter = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  gap: ${({ theme }) => theme.spacing.sm};
+  padding-top: ${({ theme }) => theme.spacing.sm};
+`;
+
+const CancelButton = styled.button`
+  padding: 7px 16px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  &:hover {
+    background: ${({ theme }) => theme.colors.bgHover};
+  }
+`;
+
+const SubmitButton = styled.button`
+  padding: 7px 16px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  background: ${({ theme }) => theme.colors.primary};
+  color: #fff;
+  border-radius: 4px;
+  &:hover:not(:disabled) {
+    background: ${({ theme }) => theme.colors.primaryHover};
+  }
+  &:disabled {
+    opacity: 0.5;
+  }
+`;
+
+/* ── 삭제 다이얼로그 ── */
+
+const DialogBox = styled.div`
+  background: ${({ theme }) => theme.colors.bgCard};
+  border-radius: ${({ theme }) => theme.layout.cardRadius};
+  width: 100%;
+  max-width: 400px;
+  padding: ${({ theme }) => theme.spacing.xxl};
+  box-shadow: ${({ theme }) => theme.shadows.lg};
+`;
+
+const DialogTitle = styled.h3`
+  font-size: ${({ theme }) => theme.fontSizes.lg};
+  font-weight: ${({ theme }) => theme.fontWeights.semibold};
+  margin-bottom: ${({ theme }) => theme.spacing.md};
+`;
+
+const DialogDesc = styled.p`
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  color: ${({ theme }) => theme.colors.textSecondary};
+  line-height: 1.6;
+  margin-bottom: ${({ theme }) => theme.spacing.xl};
+`;
+
+const DialogFooter = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  gap: ${({ theme }) => theme.spacing.sm};
+`;
+
+const DeleteConfirmButton = styled.button`
+  padding: 7px 16px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  background: ${({ theme }) => theme.colors.error};
+  color: #fff;
+  border-radius: 4px;
+  &:hover:not(:disabled) {
+    opacity: 0.85;
+  }
+  &:disabled {
+    opacity: 0.5;
+  }
+`;

@@ -27,15 +27,8 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
+      /* /api/v1/admin/auth/login — 백엔드에서 ADMIN role 검증 (일반 유저 403 차단) */
       const data = await backendApi.post(AUTH_ENDPOINTS.LOGIN, { email, password });
-
-      /* ADMIN 역할 검증 */
-      const role = data.user?.userRole || data.user?.role;
-      if (role !== 'ADMIN') {
-        setError('관리자 권한이 없는 계정입니다.');
-        setLoading(false);
-        return;
-      }
 
       /* Zustand + localStorage 저장 */
       login({ accessToken: data.accessToken, user: data.user });

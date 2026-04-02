@@ -9,7 +9,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import styled from 'styled-components';
-import { MdPlayArrow, MdStop, MdRefresh, MdChevronDown } from 'react-icons/md';
+import { MdPlayArrow, MdStop, MdRefresh, MdExpandMore } from 'react-icons/md';
 import StatusBadge from '@/shared/components/StatusBadge';
 import {
   runPipeline,
@@ -272,7 +272,7 @@ export default function PipelineExecutor() {
                 </option>
               ))}
             </TaskSelect>
-            <SelectIcon><MdChevronDown size={16} /></SelectIcon>
+            <SelectIcon><MdExpandMore size={16} /></SelectIcon>
           </TaskSelectWrapper>
 
           {selectedTaskMeta && (
