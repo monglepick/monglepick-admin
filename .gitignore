@@ -31,6 +31,9 @@ dist-ssr
 
 # Claude Code
 .claude/
+CLAUDE.md
+PROGRESS.md
+docs/
 
 # Coverage
 coverage/

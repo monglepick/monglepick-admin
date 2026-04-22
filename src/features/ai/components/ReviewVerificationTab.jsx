@@ -111,8 +111,8 @@ export default function ReviewVerificationTab() {
   /* ── 필터/페이지 ── */
   const [status, setStatus] = useState('');
   const [minConfidence, setMinConfidence] = useState('');
-  const [userIdFilter, setUserIdFilter] = useState('');
-  const [courseIdFilter, setCourseIdFilter] = useState('');
+  const [userKeyword, setUserKeyword] = useState('');
+  const [courseTitleKeyword, setCourseTitleKeyword] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [page, setPage] = useState(0);
@@ -128,12 +128,12 @@ export default function ReviewVerificationTab() {
     const p = { page, size: PAGE_SIZE };
     if (status) p.reviewStatus = status;
     if (minConfidence) p.minConfidence = Number(minConfidence);
-    if (userIdFilter.trim()) p.userId = userIdFilter.trim();
-    if (courseIdFilter.trim()) p.courseId = courseIdFilter.trim();
+    if (userKeyword.trim()) p.userKeyword = userKeyword.trim();
+    if (courseTitleKeyword.trim()) p.courseTitleKeyword = courseTitleKeyword.trim();
     if (fromDate) p.fromDate = fromDate;
     if (toDate) p.toDate = toDate;
     return p;
-  }, [page, status, minConfidence, userIdFilter, courseIdFilter, fromDate, toDate]);
+  }, [page, status, minConfidence, userKeyword, courseTitleKeyword, fromDate, toDate]);
 
   /** 목록 로드 */
   const loadRows = useCallback(async () => {
@@ -172,8 +172,8 @@ export default function ReviewVerificationTab() {
   function resetFilters() {
     setStatus('');
     setMinConfidence('');
-    setUserIdFilter('');
-    setCourseIdFilter('');
+    setUserKeyword('');
+    setCourseTitleKeyword('');
     setFromDate('');
     setToDate('');
     setPage(0);
@@ -303,21 +303,21 @@ export default function ReviewVerificationTab() {
             </FilterSelect>
           </FilterGroup>
           <FilterGroup>
-            <FilterLabel>사용자</FilterLabel>
+            <FilterLabel>닉네임/이메일</FilterLabel>
             <FilterInput
               type="text"
-              value={userIdFilter}
-              placeholder="user_id"
-              onChange={(e) => withPageReset(setUserIdFilter)(e.target.value)}
+              value={userKeyword}
+              placeholder="닉네임 또는 이메일"
+              onChange={(e) => withPageReset(setUserKeyword)(e.target.value)}
             />
           </FilterGroup>
           <FilterGroup>
-            <FilterLabel>코스</FilterLabel>
+            <FilterLabel>코스 제목</FilterLabel>
             <FilterInput
               type="text"
-              value={courseIdFilter}
-              placeholder="course_id"
-              onChange={(e) => withPageReset(setCourseIdFilter)(e.target.value)}
+              value={courseTitleKeyword}
+              placeholder="코스 제목"
+              onChange={(e) => withPageReset(setCourseTitleKeyword)(e.target.value)}
             />
           </FilterGroup>
           <FilterGroup>
@@ -370,8 +370,8 @@ export default function ReviewVerificationTab() {
                 const badge = REVIEW_STATUS_BADGE[row.reviewStatus] ?? { status: 'default', label: row.reviewStatus ?? '-' };
                 return (
                   <Tr key={row.verificationId} onClick={() => openDetail(row)}>
-                    <Td><MutedText>{row.userId ?? '-'}</MutedText></Td>
-                    <Td><MutedText>{row.courseId ?? '-'}</MutedText></Td>
+                    <Td><MutedText>{row.userNickname ?? row.userId ?? '-'}</MutedText></Td>
+                    <Td><MutedText>{row.courseTitle ?? row.courseId ?? '-'}</MutedText></Td>
                     <Td><MutedText>{row.movieId ?? '-'}</MutedText></Td>
                     <Td><PreviewText>{row.reviewPreview ?? '(리뷰 본문 없음)'}</PreviewText></Td>
                     <Td>
