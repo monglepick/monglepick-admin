@@ -15,6 +15,13 @@
  * @param {Object}   props.user     - 대상 사용자 객체
  * @param {Function} props.onClose  - 모달 닫기 콜백
  * @param {Function} props.onSuccess - 처리 완료 후 콜백 (목록 갱신 등)
+ * @param {Object}   [props.aiDraft]    - AI 어시스턴트가 채운 폼 초기값 (v3 Phase G).
+ *                                       mode 별 draft 필드:
+ *                                       - suspend: { reason, durationDays }
+ *                                       - role:    { role }
+ *                                       - points:  { amount, reason }
+ *                                       - grant-tokens: { count, reason }
+ * @param {boolean}  [props.aiDraftFromAssistant] - true 이면 모달 상단에 "AI 채움" 배너 노출
  */
 
 import { useState, useEffect } from 'react';
@@ -27,6 +34,7 @@ import {
   grantAiTokens,
   fetchSuspensionHistory,
 } from '../api/usersApi';
+import AiPrefillBanner from '@/shared/components/AiPrefillBanner';
 
 /** 역할 옵션 */
 const ROLE_OPTIONS = [
@@ -34,7 +42,15 @@ const ROLE_OPTIONS = [
   { value: 'ADMIN', label: '관리자 (ADMIN)' },
 ];
 
-export default function UserActionModal({ isOpen, mode, user, onClose, onSuccess }) {
+export default function UserActionModal({
+  isOpen,
+  mode,
+  user,
+  onClose,
+  onSuccess,
+  aiDraft = null,
+  aiDraftFromAssistant = false,
+}) {
   /* ── 폼 상태 ── */
   /** 역할 변경 모드: 선택된 역할 값 */
   const [selectedRole, setSelectedRole] = useState('USER');
@@ -61,12 +77,28 @@ export default function UserActionModal({ isOpen, mode, user, onClose, onSuccess
    */
   useEffect(() => {
     if (isOpen) {
-      setSelectedRole(user?.userRole ?? 'USER');
-      setSuspendReason('');
-      setDurationDays('');
-      setPointAmount('');
-      setAdjustReason('');
-      setTokenCount('');
+      // v3 Phase G: aiDraft 가 있으면 기본값 대신 draft 값으로 초기화.
+      // mode 별 draft 필드가 다르므로 각각 분기 — 누락 필드는 기존 기본값 유지.
+      const draft = aiDraft || {};
+      setSelectedRole(draft.role ?? user?.userRole ?? 'USER');
+      setSuspendReason(draft.reason ?? '');
+      setDurationDays(
+        draft.durationDays !== undefined && draft.durationDays !== null
+          ? String(draft.durationDays)
+          : '',
+      );
+      setPointAmount(
+        draft.amount !== undefined && draft.amount !== null
+          ? String(draft.amount)
+          : '',
+      );
+      // points / grant-tokens 공용 사유 필드 — points 모드는 draft.reason, tokens 모드도 동일
+      setAdjustReason(draft.reason ?? '');
+      setTokenCount(
+        draft.count !== undefined && draft.count !== null
+          ? String(draft.count)
+          : '',
+      );
       setHistoryList([]);
       setError(null);
 
@@ -79,7 +111,7 @@ export default function UserActionModal({ isOpen, mode, user, onClose, onSuccess
           .finally(() => setLoading(false));
       }
     }
-  }, [isOpen, user, mode]);
+  }, [isOpen, user, mode, aiDraft]);
 
   /** 모달 외부 클릭 시 닫기 */
   function handleOverlayClick(e) {
@@ -245,6 +277,10 @@ export default function UserActionModal({ isOpen, mode, user, onClose, onSuccess
             <CloseButton onClick={onClose} title="닫기">✕</CloseButton>
           </ModalHeader>
 
+          {aiDraftFromAssistant && aiDraft && (
+            <AiPrefillBanner />
+          )}
+
           <ModalBody>
             {/* 대상 사용자 요약 */}
             <UserSummary>
@@ -291,6 +327,10 @@ export default function UserActionModal({ isOpen, mode, user, onClose, onSuccess
             <ModalTitle>계정 정지</ModalTitle>
             <CloseButton onClick={onClose} title="닫기">✕</CloseButton>
           </ModalHeader>
+
+          {aiDraftFromAssistant && aiDraft && (
+            <AiPrefillBanner />
+          )}
 
           <ModalBody>
             {/* 대상 사용자 요약 */}

@@ -80,7 +80,15 @@ const CATEGORY_LABELS = {
   PAYMENT: '결제',
 };
 
-export default function TicketTab() {
+/**
+ * 상담 티켓 관리 탭 컴포넌트.
+ *
+ * @param {Object}      props
+ * @param {number|null} props.aiTicketId - AI 어시스턴트가 직접 오픈을 요청한 티켓 ID.
+ *   목록 로드 완료 후 해당 티켓 행을 찾아 상세 패널을 자동으로 열고,
+ *   aiAutoOpenedRef 로 중복 발동을 차단한다.
+ */
+export default function TicketTab({ aiTicketId = null }) {
   /* ── 목록 상태 ── */
   const [tickets, setTickets] = useState([]);
   const [total, setTotal] = useState(0);
@@ -107,6 +115,12 @@ export default function TicketTab() {
   /** 답변 입력창 ref — 상세 오픈 시 포커스 */
   const replyRef = useRef(null);
 
+  /**
+   * AI 자동 상세 오픈 중복 차단 플래그.
+   * aiTicketId 로 인한 자동 오픈은 최초 1회만 실행된다.
+   */
+  const aiAutoOpenedRef = useRef(false);
+
   /** 티켓 목록 조회 */
   const loadTickets = useCallback(async () => {
     try {
@@ -125,6 +139,22 @@ export default function TicketTab() {
   }, [page, filterStatus]);
 
   useEffect(() => { loadTickets(); }, [loadTickets]);
+
+  /**
+   * AI 자동 상세 오픈 — aiTicketId 가 있고 목록 로드가 완료된 시점에 실행.
+   * tickets 배열에서 해당 ID 를 찾아 상세 패널을 자동으로 연다.
+   * 목록 첫 페이지에 해당 티켓이 없을 수 있으나, 있으면 즉시 오픈한다.
+   * aiAutoOpenedRef 로 중복 발동을 차단한다.
+   */
+  useEffect(() => {
+    if (!aiTicketId || loading || aiAutoOpenedRef.current) return;
+    const target = tickets.find((t) => t.id === aiTicketId);
+    if (target) {
+      aiAutoOpenedRef.current = true;
+      handleOpenDetail(target);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiTicketId, tickets, loading]);
 
   /** 티켓 상세 조회 */
   const loadDetail = useCallback(async (id) => {

@@ -19,6 +19,7 @@ import AdminGuard from '@/shared/components/AdminGuard';
 import LoginPage from '@/features/auth/pages/LoginPage';
 
 /* ── 11개 탭 페이지 import ── */
+import AdminAssistantPage from '@/features/assistant/pages/AdminAssistantPage';
 import DashboardPage from '@/features/dashboard/pages/DashboardPage';
 import UsersPage from '@/features/users/pages/UsersPage';
 import BoardPage from '@/features/board/pages/BoardPage';
@@ -47,6 +48,7 @@ export default function App() {
         }
       >
         <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="assistant" element={<AdminAssistantPage />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="users" element={<UsersPage />} />
         <Route path="board" element={<BoardPage />} />

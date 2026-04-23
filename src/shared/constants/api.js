@@ -110,6 +110,14 @@ export const AI_ADMIN_ENDPOINTS = {
   REVIEW_VERIFY_APPROVE:   (id) => `${ADMIN}/ai/review-verification/${id}/approve`,
   REVIEW_VERIFY_REJECT:    (id) => `${ADMIN}/ai/review-verification/${id}/reject`,
   REVIEW_VERIFY_REVERIFY:  (id) => `${ADMIN}/ai/review-verification/${id}/reverify`,
+  /* ── 채팅 추천 칩 (2026-04-23 추가) — Backend ──
+   * 채팅 환영 화면 추천 질문 칩(ChatWindow.jsx)의 DB 풀을 운영자가 직접 CRUD.
+   * Public EP(/api/v1/chat/suggestions)와 분리 — 본 묶음은 Admin 전용 CRUD.
+   * 목록 조회: GET ?page=0&size=20&isActive=true&fromDate=&toDate=
+   * 등록: POST / 수정: PUT /{id} / 삭제: DELETE /{id} / 활성토글: PATCH /{id}/active */
+  CHAT_SUGGESTIONS:       `${ADMIN}/chat-suggestions`,
+  CHAT_SUGGESTION_DETAIL: (id) => `${ADMIN}/chat-suggestions/${id}`,
+  CHAT_SUGGESTION_ACTIVE: (id) => `${ADMIN}/chat-suggestions/${id}/active`,
 };
 
 /* ── 데이터 관리 (윤형주 — Agent) ── */

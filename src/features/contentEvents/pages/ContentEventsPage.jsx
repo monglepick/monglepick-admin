@@ -18,14 +18,20 @@
  *  포인트팩/리워드 정책 → 결제/포인트
  *  인기 검색어 → 통계/분석(검색)
  *  앱 공지 → 고객센터(공지사항 통합)
+ *
+ * 2026-04-23 Phase G P1 확장:
+ *  - useQueryParams 로 ?tab= 쿼리 읽어 탭 자동 활성화 (banner→banners, quiz, worldcup_candidate)
+ *  - WorldcupCandidateTab / QuizManagementTab 에 aiModal prop 전달
+ *    (modal=create 쿼리와 함께 draft prefill 지원)
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import RoadmapCourseTab from '../components/RoadmapCourseTab';
 import QuizManagementTab from '../components/QuizManagementTab';
 import WorldcupCandidateTab from '../components/WorldcupCandidateTab';
 import OcrEventTab from '../components/OcrEventTab';
+import { useQueryParams } from '@/shared/hooks/useQueryParams';
 
 /** 서브탭 정의 */
 const SUB_TABS = [
@@ -35,8 +41,29 @@ const SUB_TABS = [
   { key: 'ocr_event',          label: 'OCR 이벤트' },
 ];
 
+/** 유효한 탭 키 집합 */
+const VALID_TAB_KEYS = new Set(SUB_TABS.map((t) => t.key));
+
 export default function ContentEventsPage() {
   const [activeTab, setActiveTab] = useState('roadmap_course');
+
+  /**
+   * ?tab= 쿼리파라미터 감지 → 활성 탭 자동 동기화.
+   *
+   * AI 어시스턴트가 navigation/form_prefill 이벤트로 이 페이지로 진입시킬 때
+   * 해당 탭을 자동으로 열어준다.
+   * - banner_draft  → ?tab=quiz (quiz 탭은 quiz key 사용)
+   *   ※ ContentEventsPage 에는 banner 탭이 없으므로 quiz 전달 시 quiz 탭으로 열림
+   * - quiz_draft         → ?tab=quiz&modal=create
+   * - worldcup_candidate_draft → ?tab=worldcup_candidate&modal=create
+   */
+  const { tab: queryTab, modal: queryModal } = useQueryParams();
+
+  useEffect(() => {
+    if (queryTab && VALID_TAB_KEYS.has(queryTab)) {
+      setActiveTab(queryTab);
+    }
+  }, [queryTab]);
 
   return (
     <Wrapper>
@@ -65,8 +92,20 @@ export default function ContentEventsPage() {
       {/* 서브탭 콘텐츠 */}
       <TabContent>
         {activeTab === 'roadmap_course' && <RoadmapCourseTab />}
-        {activeTab === 'quiz' && <QuizManagementTab />}
-        {activeTab === 'worldcup_candidate' && <WorldcupCandidateTab />}
+        {/*
+          quiz_draft: ?tab=quiz&modal=create 로 진입 시 QuizManagementTab 에
+          aiModal='create' prop 을 전달해 모달 자동 오픈 + draft prefill 을 지원한다.
+        */}
+        {activeTab === 'quiz' && (
+          <QuizManagementTab aiModal={queryModal} />
+        )}
+        {/*
+          worldcup_candidate_draft: ?tab=worldcup_candidate&modal=create 로 진입 시
+          WorldcupCandidateTab 에 aiModal='create' prop 을 전달한다.
+        */}
+        {activeTab === 'worldcup_candidate' && (
+          <WorldcupCandidateTab aiModal={queryModal} />
+        )}
         {activeTab === 'ocr_event' && <OcrEventTab />}
       </TabContent>
     </Wrapper>

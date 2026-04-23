@@ -24,6 +24,9 @@ import styled from 'styled-components';
 import { MdAdd, MdEdit, MdDelete, MdRefresh, MdPushPin, MdToggleOn, MdToggleOff } from 'react-icons/md';
 import { fetchNotices, createNotice, updateNotice, deleteNotice, updateNoticeActive } from '../api/supportApi';
 import StatusBadge from '@/shared/components/StatusBadge';
+import { useQueryParams } from '@/shared/hooks/useQueryParams';
+import { useAiPrefill } from '@/shared/hooks/useAiPrefill';
+import AiPrefillBanner from '@/shared/components/AiPrefillBanner';
 
 /** 공지 카테고리 (콘텐츠 분류) */
 const CATEGORIES = [
@@ -90,6 +93,15 @@ function fromIso(iso) {
 }
 
 export default function NoticeTab() {
+  /* ── URL 쿼리파라미터 / AI prefill ── */
+  /**
+   * ?modal=create  → 공지 등록 모달 자동 오픈
+   * ?modal=edit&id=N → 해당 공지 수정 모달 자동 오픈 (목록 로드 후 매칭)
+   * AI 어시스턴트가 draft 를 location.state 에 심어두면 모달 초기값으로 주입.
+   */
+  const { modal: queryModal, id: queryId } = useQueryParams();
+  const { draft, isAiGenerated, bannerText } = useAiPrefill();
+
   /* ── 목록 상태 ── */
   const [notices, setNotices] = useState([]);
   const [total, setTotal] = useState(0);
@@ -132,6 +144,48 @@ export default function NoticeTab() {
   }, [page, filterCategory]);
 
   useEffect(() => { loadNotices(); }, [loadNotices]);
+
+  /**
+   * 쿼리파라미터 자동 모달 오픈 처리.
+   *
+   * - ?modal=create : 공지 등록 모달을 즉시 오픈. draft 가 있으면 폼 초기값으로 주입.
+   * - ?modal=edit&id=N : 목록 로드 완료 후 해당 id 의 공지를 찾아 수정 모달 오픈.
+   *
+   * notices 목록이 바뀔 때마다 재평가하므로 페이지 진입 직후 목록 로드가 끝나면
+   * 자동으로 트리거된다. 이미 모달이 열려 있으면 중복 실행 방지.
+   */
+  useEffect(() => {
+    if (!queryModal || modalOpen) return;
+
+    if (queryModal === 'create') {
+      /* draft 필드명 (camelCase): title, type(→noticeType), pinned(→isPinned), content, startAt, endAt */
+      const prefill = draft
+        ? {
+            ...INITIAL_FORM,
+            title:       draft.title       ?? INITIAL_FORM.title,
+            noticeType:  draft.type        ?? INITIAL_FORM.noticeType,
+            content:     draft.content     ?? INITIAL_FORM.content,
+            isPinned:    draft.pinned      ?? INITIAL_FORM.isPinned,
+            startAt:     fromIso(draft.startAt) ?? INITIAL_FORM.startAt,
+            endAt:       fromIso(draft.endAt)   ?? INITIAL_FORM.endAt,
+          }
+        : INITIAL_FORM;
+      setEditTarget(null);
+      setForm(prefill);
+      setModalOpen(true);
+      return;
+    }
+
+    if (queryModal === 'edit' && queryId && notices.length > 0 && !loading) {
+      const target = notices.find(
+        (n) => String(n.noticeId ?? n.id) === String(queryId)
+      );
+      if (target) {
+        openEditModal(target);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryModal, queryId, notices, loading]);
 
   /* ── 필터 변경 시 첫 페이지로 ── */
   function handleCategoryChange(value) {
@@ -402,6 +456,9 @@ export default function NoticeTab() {
             </ModalHeader>
 
             <ModalForm onSubmit={handleFormSubmit}>
+              {/* ── AI 어시스턴트 prefill 안내 배너 (draft 가 있을 때만 노출) ── */}
+              {bannerText && <AiPrefillBanner text={bannerText} />}
+
               {/* ── 기본 정보 ── */}
               <FormRow>
                 <Label>제목 *</Label>
