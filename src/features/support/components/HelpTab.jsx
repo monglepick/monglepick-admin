@@ -7,6 +7,12 @@
  * - 등록/수정 모달 (title, category, content, displayOrder)
  * - 삭제 확인 다이얼로그
  * - 페이지네이션
+ *
+ * Phase G P1 (2026-04-23):
+ * - ?modal=create 쿼리 시 도움말 등록 모달 자동 오픈
+ * - AI 어시스턴트 draft(help_article_draft) → 모달 초기값 주입
+ *   draft 필드: title, category, content
+ * - 모달 상단 AiPrefillBanner 노출 (draft && isAiGenerated 조건)
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -19,6 +25,9 @@ import {
   deleteHelpArticle,
 } from '../api/supportApi';
 import StatusBadge from '@/shared/components/StatusBadge';
+import { useQueryParams } from '@/shared/hooks/useQueryParams';
+import { useAiPrefill } from '@/shared/hooks/useAiPrefill';
+import AiPrefillBanner from '@/shared/components/AiPrefillBanner';
 
 /**
  * 도움말 카테고리 옵션.
@@ -59,6 +68,15 @@ const INITIAL_FORM = {
 };
 
 export default function HelpTab() {
+  /* ── URL 쿼리파라미터 / AI prefill ── */
+  /**
+   * ?modal=create → 도움말 등록 모달 자동 오픈.
+   * AI 어시스턴트가 draft(help_article_draft)를 location.state 에 심어두면
+   * 모달 초기값(title, category, content)으로 주입한다.
+   */
+  const { modal: queryModal } = useQueryParams();
+  const { draft, isAiGenerated, bannerText } = useAiPrefill();
+
   /* ── 목록 상태 ── */
   const [articles, setArticles] = useState([]);
   const [total, setTotal] = useState(0);
@@ -98,6 +116,34 @@ export default function HelpTab() {
   }, [page, filterCategory]);
 
   useEffect(() => { loadArticles(); }, [loadArticles]);
+
+  /**
+   * 쿼리파라미터 자동 모달 오픈 처리.
+   *
+   * - ?modal=create : 도움말 등록 모달을 즉시 오픈.
+   *   draft(help_article_draft)가 있으면 title/category/content 폼 초기값으로 주입.
+   *
+   * 이미 모달이 열려 있으면 중복 실행 방지.
+   */
+  useEffect(() => {
+    if (!queryModal || modalOpen) return;
+
+    if (queryModal === 'create') {
+      /* draft 필드명(camelCase): title, category, content */
+      const prefill = draft
+        ? {
+            ...INITIAL_FORM,
+            title:    draft.title    ?? INITIAL_FORM.title,
+            category: draft.category ?? INITIAL_FORM.category,
+            content:  draft.content  ?? INITIAL_FORM.content,
+          }
+        : INITIAL_FORM;
+      setEditTarget(null);
+      setForm(prefill);
+      setModalOpen(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryModal]);
 
   /** 카테고리 필터 변경 — 첫 페이지로 리셋 */
   function handleCategoryChange(value) {
@@ -274,6 +320,9 @@ export default function HelpTab() {
             </ModalHeader>
 
             <ModalForm onSubmit={handleFormSubmit}>
+              {/* ── AI 어시스턴트 prefill 안내 배너 (draft 가 있을 때만 노출) ── */}
+              {bannerText && <AiPrefillBanner text={bannerText} />}
+
               <FormRow>
                 <Label>제목 *</Label>
                 <Input

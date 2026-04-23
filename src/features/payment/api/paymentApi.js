@@ -15,11 +15,13 @@ import { PAYMENT_ADMIN_ENDPOINTS } from '@/shared/constants/api';
 /**
  * 결제 내역 목록 조회.
  * @param {Object} params - 검색 조건
- * @param {string} [params.status]  - 결제 상태 필터 (COMPLETED|PENDING|FAILED|REFUNDED)
- * @param {string} [params.type]    - 결제 유형 필터 (SUBSCRIPTION|POINT_PACK|ITEM)
- * @param {string} [params.userId]  - 특정 사용자 ID 필터
- * @param {number} [params.page=0]  - 페이지 번호 (0-base)
- * @param {number} [params.size=20] - 페이지 크기
+ * @param {string} [params.status]    - 결제 상태 필터 (COMPLETED|PENDING|FAILED|REFUNDED)
+ * @param {string} [params.orderType] - 결제 유형 필터 (SUBSCRIPTION|POINT_PACK)
+ * @param {string} [params.userId]    - 특정 사용자 ID 필터
+ * @param {string} [params.fromDate]  - 생성일 시작 inclusive (ISO-8601, 예: 2026-04-01T00:00:00)
+ * @param {string} [params.toDate]    - 생성일 종료 exclusive (ISO-8601)
+ * @param {number} [params.page=0]    - 페이지 번호 (0-base)
+ * @param {number} [params.size=20]   - 페이지 크기
  * @returns {Promise<{content: Array, totalElements: number, totalPages: number}>}
  */
 export function fetchPaymentOrders(params = {}) {
@@ -88,11 +90,14 @@ export function compensateOrder(orderId, data = {}) {
 
 /**
  * 구독 목록 조회.
- * @param {Object} params             - 검색 조건
- * @param {string} [params.status]    - 상태 필터 (ACTIVE|CANCELLED|EXPIRED)
- * @param {string} [params.plan]      - 플랜 필터 (BASIC|PREMIUM|ENTERPRISE)
- * @param {number} [params.page=0]    - 페이지 번호
- * @param {number} [params.size=20]   - 페이지 크기
+ * @param {Object} params              - 검색 조건
+ * @param {string} [params.status]     - 상태 필터 (ACTIVE|CANCELLED|EXPIRED)
+ * @param {string} [params.planCode]   - 플랜 코드 필터 (monthly_basic|monthly_premium|yearly_basic|yearly_premium)
+ * @param {string} [params.userId]     - 특정 사용자 ID 필터
+ * @param {string} [params.fromDate]   - 구독 생성일 시작 inclusive (ISO-8601)
+ * @param {string} [params.toDate]     - 구독 생성일 종료 exclusive (ISO-8601)
+ * @param {number} [params.page=0]     - 페이지 번호
+ * @param {number} [params.size=20]    - 페이지 크기
  * @returns {Promise<{content: Array, totalElements: number, totalPages: number}>}
  */
 export function fetchSubscriptions(params = {}) {
@@ -159,21 +164,26 @@ export function manualPointTransfer(data) {
 }
 
 /**
- * 특정 사용자의 포인트 변동 이력 조회.
+ * 특정 사용자의 포인트 변동 이력 조회 (날짜 범위 필터 지원).
  *
- * 백엔드는 전역 `/point/histories` 엔드포인트에 `userId` 쿼리 파라미터로 필터링을 받는다.
- * userId 를 생략하면 전체 사용자 이력을 반환한다 (본 API 는 필수로 전달).
+ * 백엔드 `/point/histories` 는 userId / fromDate / toDate 쿼리 파라미터를 지원한다.
+ * 모두 nullable — 생략한 조건은 WHERE 절에서 자동 제외된다.
  *
- * @param {string} userId         - 사용자 ID (필수)
- * @param {Object} params         - 검색 조건
- * @param {number} [params.page=0]  - 페이지 번호 (0-base)
- * @param {number} [params.size=20] - 페이지 크기
+ * @param {string} userId             - 사용자 ID (nullable — 빈 값이면 전체 사용자)
+ * @param {Object} params             - 검색 조건
+ * @param {string} [params.fromDate]  - 변동일 시작 inclusive (ISO-8601, 예: 2026-04-01T00:00:00)
+ * @param {string} [params.toDate]    - 변동일 종료 exclusive (ISO-8601)
+ * @param {number} [params.page=0]    - 페이지 번호 (0-base)
+ * @param {number} [params.size=20]   - 페이지 크기
  * @returns {Promise<{content: Array, totalElements: number, totalPages: number}>}
  */
 export function fetchPointHistory(userId, params = {}) {
-  const { page = 0, size = 20 } = params;
-  const query = new URLSearchParams({ userId, page, size }).toString();
-  return backendApi.get(`${PAYMENT_ADMIN_ENDPOINTS.POINT_HISTORIES}?${query}`);
+  const { page = 0, size = 20, fromDate, toDate } = params;
+  const qp = new URLSearchParams({ page, size });
+  if (userId)   qp.append('userId',   userId);
+  if (fromDate) qp.append('fromDate', fromDate);
+  if (toDate)   qp.append('toDate',   toDate);
+  return backendApi.get(`${PAYMENT_ADMIN_ENDPOINTS.POINT_HISTORIES}?${qp.toString()}`);
 }
 
 /**

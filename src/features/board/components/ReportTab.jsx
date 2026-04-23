@@ -9,7 +9,7 @@
  * - toxicityScore 색상: >= 0.8 → error, >= 0.5 → warning, < 0.5 → info
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import styled from 'styled-components';
 import { MdRefresh, MdWarning, MdBlock, MdVisibilityOff } from 'react-icons/md';
 import { fetchReports, processReport } from '../api/contentApi';
@@ -64,7 +64,15 @@ function formatDate(dateStr) {
   return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export default function ReportTab() {
+/**
+ * 신고 관리 탭 컴포넌트.
+ *
+ * @param {Object}  props
+ * @param {number|null} props.aiReportId - AI 어시스턴트가 직접 오픈을 요청한 신고 ID.
+ *   데이터 로드 완료 후 해당 신고 행을 찾아 조치 모달을 자동으로 열고,
+ *   useRef 로 중복 발동을 차단한다.
+ */
+export default function ReportTab({ aiReportId = null }) {
   /* ── 목록 상태 ── */
   const [reports, setReports] = useState([]);
   const [totalPages, setTotalPages] = useState(0);
@@ -78,6 +86,12 @@ export default function ReportTab() {
   /* ── 조치 모달 상태 ── */
   const [actionTarget, setActionTarget] = useState(null); // 선택된 신고 항목
   const [actionLoading, setActionLoading] = useState(false);
+
+  /**
+   * AI 자동 오픈 중복 차단 플래그.
+   * 한 번 처리되면 다시 발동하지 않도록 useRef 로 유지한다.
+   */
+  const aiAutoOpenedRef = useRef(false);
 
   /** 신고 목록 조회 */
   const loadReports = useCallback(async () => {
@@ -99,6 +113,20 @@ export default function ReportTab() {
   useEffect(() => {
     loadReports();
   }, [loadReports]);
+
+  /**
+   * AI 자동 모달 오픈 — aiReportId 가 있고 데이터 로드가 완료된 시점에 실행.
+   * reports 배열에서 해당 ID 를 찾아 조치 모달을 자동으로 연다.
+   * aiAutoOpenedRef 로 중복 발동을 차단한다.
+   */
+  useEffect(() => {
+    if (!aiReportId || loading || aiAutoOpenedRef.current) return;
+    const target = reports.find((r) => r.id === aiReportId);
+    if (target) {
+      aiAutoOpenedRef.current = true;
+      setActionTarget(target);
+    }
+  }, [aiReportId, reports, loading]);
 
   /** 필터 변경 시 첫 페이지로 초기화 */
   function handleStatusChange(value) {

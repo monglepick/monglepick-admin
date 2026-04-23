@@ -136,7 +136,25 @@ function formatSignedAmount(n, suffix = 'P') {
   return `${sign}${num.toLocaleString()}${suffix}`;
 }
 
-export default function UserDetailPanel({ userId, onClose, onRefresh }) {
+/**
+ * @param {Object}   props
+ * @param {string}   props.userId                  - 조회할 사용자 ID
+ * @param {Function} props.onClose                 - 패널 닫기 콜백
+ * @param {Function} props.onRefresh               - 외부 목록 갱신 콜백
+ * @param {string|null} [props.initialAction]      - AI 어시스턴트가 요청한 초기 모달 mode
+ *   ('role' | 'suspend' | 'activate' | 'points' | 'grant-tokens').
+ *   사용자 상세 로드 완료 후 해당 모달을 자동 오픈한다.
+ * @param {Function} [props.onInitialActionConsumed] - initialAction 소비 후 부모에 알림
+ * @param {Object|null} [props.aiDraft]            - AI 어시스턴트가 채운 폼 초기값
+ */
+export default function UserDetailPanel({
+  userId,
+  onClose,
+  onRefresh,
+  initialAction = null,
+  onInitialActionConsumed,
+  aiDraft = null,
+}) {
   /* ── 사용자 상세 상태 ── */
   const [detail, setDetail]               = useState(null);
   const [detailLoading, setDetailLoading] = useState(true);
@@ -155,7 +173,7 @@ export default function UserDetailPanel({ userId, onClose, onRefresh }) {
   const [loadedTabs, setLoadedTabs] = useState(new Set());
 
   /* ── 액션 모달 상태 ── */
-  /** 열려 있는 모달 모드: 'role' | 'suspend' | 'activate' | null */
+  /** 열려 있는 모달 모드: 'role' | 'suspend' | 'activate' | 'points' | 'grant-tokens' | null */
   const [modalMode, setModalMode] = useState(null);
 
   /**
@@ -821,6 +839,8 @@ export default function UserDetailPanel({ userId, onClose, onRefresh }) {
         } : null}
         onClose={() => setModalMode(null)}
         onSuccess={handleActionSuccess}
+        aiDraft={aiDraft}
+        aiDraftFromAssistant={Boolean(aiDraft)}
       />
     </Panel>
   );

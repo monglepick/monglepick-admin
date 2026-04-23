@@ -15,10 +15,17 @@
  *  - 내부적으로 `resumeAdminAssistant` 로 /resume SSE 개시 → 동일 assistant 메시지에 결과 이어 쓰기
  *  - 승인/거절 후 toolCalls 의 해당 항목에 `decision` 필드를 주입해 ToolCallTrace 가 상태 표시
  *
+ * Phase F (v3, 2026-04-23): form_prefill / navigation SSE 이벤트 연결.
+ *  - Agent 가 `form_prefill` 이벤트를 발행하면 해당 assistant 메시지의 `formPrefill` 필드에 저장.
+ *    AssistantChatPanel → FormPrefillCard 가 이를 읽어 "열기" 버튼을 렌더한다.
+ *  - Agent 가 `navigation` 이벤트를 발행하면 `navigation` 필드에 저장.
+ *    AssistantChatPanel → NavigationCard 가 이동 버튼을 렌더한다.
+ *  - 상태머신은 기존 그대로 (streaming → done/error). 두 이벤트는 done 전에 도달한다.
+ *
  * 상태 모델:
- *   messages: [{ id, role, text, status?, toolCalls?, toolResults?, error? }]
+ *   messages: [{ id, role, text, status?, toolCalls?, toolResults?, formPrefill?, navigation?, error? }]
  *   status:   'idle' | 'streaming' | 'awaiting_confirmation' | 'done' | 'error'
- *   confirmation: ConfirmationPayload | null  (승인 대기 중에만 값, 그 외 null)
+ *   confirmation: ConfirmationPayload | null  (예비 보관 — v3 에서 미사용)
  *   sessionId: string
  */
 
@@ -114,10 +121,20 @@ export default function useAdminAssistant() {
         }
       },
       onConfirmationRequired: (payload) => {
-        // Agent 가 risk_gate interrupt → 승인 대기 전이
+        // v2 HITL 흐름 — v3 에서 Agent 가 발행하지 않으나 예비 보관
         setConfirmation(payload);
         setStatus('awaiting_confirmation');
         setCurrentPhase('관리자 승인을 기다리고 있어요...');
+      },
+      onFormPrefill: (payload) => {
+        // v3 Phase F: AI 가 폼 초안을 완성했을 때 도착.
+        // assistant 메시지의 formPrefill 필드에 저장 → FormPrefillCard 가 렌더.
+        updateAssistant(assistantId, { formPrefill: payload });
+      },
+      onNavigation: (payload) => {
+        // v3 Phase F: AI 가 대상 화면 링크를 제공할 때 도착.
+        // assistant 메시지의 navigation 필드에 저장 → NavigationCard 가 렌더.
+        updateAssistant(assistantId, { navigation: payload });
       },
       onDone: () => {
         updateAssistant(assistantId, { status: 'done' });
@@ -188,6 +205,8 @@ export default function useAdminAssistant() {
           status: 'streaming',
           toolCalls: [],
           toolResults: [],
+          formPrefill: null,  // form_prefill SSE 이벤트 수신 시 채워짐 → FormPrefillCard 렌더
+          navigation: null,   // navigation SSE 이벤트 수신 시 채워짐 → NavigationCard 렌더
         },
       ]);
       setStatus('streaming');

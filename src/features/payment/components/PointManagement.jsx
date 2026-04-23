@@ -15,7 +15,7 @@
  * @module PointManagement
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { manualPointTransfer, fetchPointHistory } from '../api/paymentApi';
 import StatusBadge from '@/shared/components/StatusBadge';
@@ -91,6 +91,14 @@ export default function PointManagement() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState(null);
   const HISTORY_PAGE_SIZE = 20;
+
+  /* 이력 날짜 범위 필터 — Input(타이핑 중) / Filter(확정) 분리.
+   * "기간 적용" 버튼 클릭 시에만 Filter 로 커밋되어 재조회가 유발된다.
+   * (2026-04-23 추가, AuditLogTab 패턴 재사용) */
+  const [fromDateInput, setFromDateInput] = useState('');
+  const [toDateInput, setToDateInput] = useState('');
+  const [fromDateFilter, setFromDateFilter] = useState('');
+  const [toDateFilter, setToDateFilter] = useState('');
 
   /* ── 수동 지급/차감 폼 핸들러 ── */
 
@@ -169,13 +177,32 @@ export default function PointManagement() {
 
   /* ── 이력 조회 ── */
 
-  /** 이력 API 호출 */
+  /**
+   * datetime-local("2026-04-01T14:30") → ISO-8601 초 단위("2026-04-01T14:30:00") 변환.
+   * 빈 문자열이면 undefined → 요청 파라미터에서 자동 제외.
+   */
+  function toIsoOrUndefined(dtLocal) {
+    if (!dtLocal) return undefined;
+    return dtLocal.length === 16 ? `${dtLocal}:00` : dtLocal;
+  }
+
+  /**
+   * 이력 API 호출.
+   * 확정된 날짜 필터(fromDateFilter/toDateFilter)를 클로저로 캡쳐해 함께 전송한다.
+   * useCallback deps 에 두 필터를 포함시켜, 필터 변경 시 새 인스턴스가 생성되고
+   * 아래 useEffect 가 동일 사용자에 대해 재조회를 트리거한다.
+   */
   const loadHistory = useCallback(async (uid, pg = 0) => {
     if (!uid) return;
     try {
       setHistoryLoading(true);
       setHistoryError(null);
-      const result = await fetchPointHistory(uid, { page: pg, size: HISTORY_PAGE_SIZE });
+      const params = { page: pg, size: HISTORY_PAGE_SIZE };
+      const fromIso = toIsoOrUndefined(fromDateFilter);
+      const toIso   = toIsoOrUndefined(toDateFilter);
+      if (fromIso) params.fromDate = fromIso;
+      if (toIso)   params.toDate   = toIso;
+      const result = await fetchPointHistory(uid, params);
       setHistory(result?.content ?? []);
       setHistoryTotal(result?.totalElements ?? 0);
       setHistoryPages(result?.totalPages ?? 0);
@@ -186,7 +213,20 @@ export default function PointManagement() {
     } finally {
       setHistoryLoading(false);
     }
-  }, []);
+  }, [fromDateFilter, toDateFilter]);
+
+  /**
+   * 날짜 필터 확정 값이 바뀌면 현재 선택된 사용자의 이력을 첫 페이지부터 재조회.
+   * 사용자 선택 변경은 handleHistoryUserChange 에서 직접 호출하므로 여기서는
+   * `fromDateFilter` / `toDateFilter` 만 deps 로 두면 충분하다.
+   */
+  useEffect(() => {
+    if (historyUser?.userId) {
+      loadHistory(historyUser.userId, 0);
+    }
+    // historyUser 는 사용자 선택 핸들러에서 직접 loadHistory 를 호출하므로 deps 에서 제외.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fromDateFilter, toDateFilter]);
 
   /** 이력 픽커 사용자 선택 변경 */
   function handleHistoryUserChange(user) {
@@ -199,6 +239,23 @@ export default function PointManagement() {
       setHistoryPages(0);
     }
   }
+
+  /** 날짜 필터 적용 — 타이핑 값을 확정 Filter 로 커밋 (useEffect 가 재조회 트리거) */
+  function handleDateApply(e) {
+    e.preventDefault();
+    setFromDateFilter(fromDateInput);
+    setToDateFilter(toDateInput);
+  }
+
+  /** 날짜 필터 초기화 */
+  function handleDateReset() {
+    setFromDateInput('');
+    setToDateInput('');
+    setFromDateFilter('');
+    setToDateFilter('');
+  }
+
+  const hasDateFilter = !!fromDateFilter || !!toDateFilter;
 
   return (
     <Wrapper>
@@ -306,6 +363,49 @@ export default function PointManagement() {
             placeholder="이메일 또는 닉네임으로 검색"
           />
         </SearchRow>
+
+        {/*
+          날짜 범위 필터 (2026-04-23 추가) — 포인트 변동일(createdAt) 기준.
+          사용자를 선택하지 않은 상태에서도 입력은 가능하되, 재조회는
+          사용자가 선택된 경우에만 useEffect 로 트리거된다.
+        */}
+        <DateFilterForm onSubmit={handleDateApply}>
+          <DateFieldWrap>
+            <DateLabel>시작일</DateLabel>
+            <DateInput
+              type="datetime-local"
+              value={fromDateInput}
+              onChange={(e) => setFromDateInput(e.target.value)}
+              max={toDateInput || undefined}
+              title="변동일 시작 (inclusive)"
+            />
+          </DateFieldWrap>
+          <DateFieldWrap>
+            <DateLabel>종료일</DateLabel>
+            <DateInput
+              type="datetime-local"
+              value={toDateInput}
+              onChange={(e) => setToDateInput(e.target.value)}
+              min={fromDateInput || undefined}
+              title="변동일 종료 (exclusive)"
+            />
+          </DateFieldWrap>
+          <ApplyButton type="submit">기간 적용</ApplyButton>
+          {hasDateFilter && (
+            <ResetButton type="button" onClick={handleDateReset}>
+              초기화
+            </ResetButton>
+          )}
+          {hasDateFilter && (
+            <AppliedBadge>
+              적용됨: <strong>
+                {fromDateFilter ? fromDateFilter.replace('T', ' ') : '처음'}
+                {' ~ '}
+                {toDateFilter ? toDateFilter.replace('T', ' ') : '지금'}
+              </strong>
+            </AppliedBadge>
+          )}
+        </DateFilterForm>
 
         {historyUser && (
           <>
@@ -552,6 +652,79 @@ const SearchLabel = styled.span`
   font-weight: ${({ theme }) => theme.fontWeights.medium};
   color: ${({ theme }) => theme.colors.textSecondary};
   white-space: nowrap;
+`;
+
+/* ── 날짜 범위 필터 (2026-04-23 추가) ── */
+
+const DateFilterForm = styled.form`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.sm};
+  flex-wrap: wrap;
+  margin-bottom: ${({ theme }) => theme.spacing.lg};
+  padding: ${({ theme }) => theme.spacing.md};
+  background: ${({ theme }) => theme.colors.bgHover};
+  border: 1px solid ${({ theme }) => theme.colors.borderLight};
+  border-radius: ${({ theme }) => theme.layout.cardRadius};
+`;
+
+const DateFieldWrap = styled.label`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+`;
+
+const DateLabel = styled.span`
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.textMuted};
+  white-space: nowrap;
+`;
+
+const DateInput = styled.input`
+  height: 32px;
+  padding: 0 8px;
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  background: #ffffff;
+  color: ${({ theme }) => theme.colors.textPrimary};
+  font-family: ${({ theme }) => theme.fonts.base};
+
+  &:focus {
+    outline: none;
+    border-color: ${({ theme }) => theme.colors.primary};
+  }
+`;
+
+const ApplyButton = styled.button`
+  padding: 5px 12px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  background: ${({ theme }) => theme.colors.primary};
+  color: #fff;
+  border-radius: 4px;
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  &:hover { background: ${({ theme }) => theme.colors.primaryHover}; }
+`;
+
+const ResetButton = styled.button`
+  padding: 5px 10px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  &:hover { background: ${({ theme }) => theme.colors.bgHover}; }
+`;
+
+const AppliedBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  background: ${({ theme }) => theme.colors.primaryLight};
+  color: ${({ theme }) => theme.colors.primary};
+  border-radius: 20px;
+  border: 1px solid ${({ theme }) => theme.colors.primary};
 `;
 
 const HistoryHeader = styled.div`

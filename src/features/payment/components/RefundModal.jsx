@@ -24,8 +24,13 @@ import { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { MdClose } from 'react-icons/md';
 import { refundOrder } from '../api/paymentApi';
+import { useAiPrefill } from '@/shared/hooks/useAiPrefill';
+import AiPrefillBanner from '@/shared/components/AiPrefillBanner';
 
 export default function RefundModal({ isOpen, order, onClose, onSuccess }) {
+  /* v3 Phase G: AI Assistant 가 state.draft 에 reason 을 실어 보낸 경우 초기값으로 주입 */
+  const { draft: aiDraft, isAiGenerated } = useAiPrefill();
+
   /* 환불 사유 입력값 */
   const [reason, setReason] = useState('');
   /* API 호출 중 로딩 상태 */
@@ -36,10 +41,10 @@ export default function RefundModal({ isOpen, order, onClose, onSuccess }) {
   /* 모달 열릴 때마다 폼 초기화 */
   useEffect(() => {
     if (isOpen) {
-      setReason('');
+      setReason(aiDraft?.reason ?? '');
       setError(null);
     }
-  }, [isOpen]);
+  }, [isOpen, aiDraft]);
 
   /* 모달 닫혀있으면 렌더링 생략 */
   if (!isOpen || !order) return null;
@@ -81,6 +86,9 @@ export default function RefundModal({ isOpen, order, onClose, onSuccess }) {
             <MdClose size={20} />
           </CloseButton>
         </ModalHeader>
+
+        {/* v3 Phase G: AI 프리필 배너 — state.draft 로 진입했을 때만 노출 */}
+        {isAiGenerated && aiDraft && <AiPrefillBanner />}
 
         {/* 주문 정보 요약 */}
         <OrderSummary>

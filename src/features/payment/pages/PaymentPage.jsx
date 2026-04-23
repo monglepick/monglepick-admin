@@ -23,8 +23,9 @@
  * @module PaymentPage
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import styled from 'styled-components';
+import { useQueryParams } from '@/shared/hooks/useQueryParams';
 import PaymentOrderTable from '../components/PaymentOrderTable';
 import SubscriptionTable from '../components/SubscriptionTable';
 import PointManagement from '../components/PointManagement';
@@ -47,6 +48,25 @@ const TABS = [
 export default function PaymentPage() {
   /* 현재 활성 탭 ID */
   const [activeTab, setActiveTab] = useState('orders');
+
+  /* v3 Phase G: AI Assistant 가 navigate(path?tab=xxx&orderId=yyy&action=refund) 로
+   * 진입시킨 경우 해당 탭을 자동 활성화. orderId/action 은 PaymentOrderTable 로 전달. */
+  const queryParams = useQueryParams();
+  useEffect(() => {
+    const requestedTab = queryParams.tab;
+    if (requestedTab && TABS.some((t) => t.id === requestedTab)) {
+      setActiveTab(requestedTab);
+    }
+  }, [queryParams.tab]);
+
+  /* PaymentOrderTable 에 넘길 AI 요청 컨텍스트 */
+  const aiOrderRequest =
+    (queryParams.orderId || queryParams.action === 'refund')
+      ? {
+          orderId: queryParams.orderId || null,
+          action: queryParams.action || null,
+        }
+      : null;
 
   return (
     <Wrapper>
@@ -74,7 +94,7 @@ export default function PaymentPage() {
 
       {/* 탭 콘텐츠 영역 */}
       <TabContent>
-        {activeTab === 'orders'        && <PaymentOrderTable />}
+        {activeTab === 'orders'        && <PaymentOrderTable aiOrderRequest={aiOrderRequest} />}
         {/*
           개별 결제 탭 — SUBSCRIPTION 주문만 필터링하여 표시.
           보상 실패 섹션은 전체 탭에서만 노출하여 중복 혼란 방지.

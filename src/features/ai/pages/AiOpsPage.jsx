@@ -6,10 +6,14 @@
  * 판정한 시청 인증 기록을 관리자가 모니터링/오버라이드한다. 에이전트 자체는 추후 개발 예정.
  * 2026-04-23: '채팅 추천 칩' 서브탭 추가 — 채팅 환영 화면의 추천 질문 칩 DB 풀을
  * 운영자가 직접 CRUD한다.
+ *
+ * Phase G P1 (2026-04-23):
+ * - ?tab=chat-suggestions 쿼리 시 해당 서브탭 자동 전환 (AI 어시스턴트 딥링크 대응).
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import styled from 'styled-components';
+import { useQueryParams } from '@/shared/hooks/useQueryParams';
 import AiTriggerPanel from '../components/AiTriggerPanel';
 import GenerationHistory from '../components/GenerationHistory';
 import ChatLogViewer from '../components/ChatLogViewer';
@@ -27,6 +31,20 @@ const TABS = [
 
 export default function AiOpsPage() {
   const [activeTab, setActiveTab] = useState('trigger');
+
+  /* ── URL ?tab= 쿼리로 서브탭 자동 전환 ── */
+  /**
+   * AI 어시스턴트가 /admin/ai?tab=chat-suggestions&modal=create 로 딥링크할 때
+   * 해당 탭을 자동으로 활성화한다. 유효하지 않은 tab 값은 무시한다.
+   */
+  const { tab: queryTab } = useQueryParams();
+  const VALID_TABS = TABS.map((t) => t.key);
+  useEffect(() => {
+    if (queryTab && VALID_TABS.includes(queryTab)) {
+      setActiveTab(queryTab);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryTab]);
 
   return (
     <Wrapper>

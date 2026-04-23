@@ -8,11 +8,13 @@
  * - 페이지네이션 (10건/페이지)
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import styled from 'styled-components';
 import { MdAdd, MdEdit, MdDelete, MdRefresh, MdBrokenImage } from 'react-icons/md';
 import { fetchBanners, createBanner, updateBanner, deleteBanner } from '../api/settingsApi';
 import StatusBadge from '@/shared/components/StatusBadge';
+import { useAiPrefill } from '@/shared/hooks/useAiPrefill';
+import AiPrefillBanner from '@/shared/components/AiPrefillBanner';
 
 /** 배너 위치 옵션 */
 const POSITIONS = [
@@ -64,7 +66,12 @@ function toDateInputValue(dateStr) {
   return new Date(dateStr).toISOString().slice(0, 10);
 }
 
-export default function BannerTab() {
+export default function BannerTab({ aiModal = null }) {
+  /* v3 Phase G: AI 어시스턴트 prefill. banner_draft target_path 로 진입 시
+   * `location.state.draft` 에 담긴 초안을 INITIAL_FORM 필드명으로 매핑해 초기값 세팅. */
+  const { draft: aiDraft, isAiGenerated } = useAiPrefill();
+  const aiAutoOpenedRef = useRef(false);
+
   /* ── 목록 상태 ── */
   const [banners, setBanners] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -105,11 +112,34 @@ export default function BannerTab() {
   }, [loadBanners]);
 
   /* ── 모달 열기 (신규 등록) ── */
-  function openCreateModal() {
+  function openCreateModal(prefill = null) {
     setEditTarget(null);
-    setForm(INITIAL_FORM);
+    if (prefill) {
+      /* Agent banner_draft 필드명 → BannerTab INITIAL_FORM 필드명 매핑.
+       * link→linkUrl, priority→sortOrder 차이 보정. 누락 필드는 INITIAL_FORM 기본값. */
+      setForm({
+        ...INITIAL_FORM,
+        title:    prefill.title    ?? INITIAL_FORM.title,
+        imageUrl: prefill.imageUrl ?? INITIAL_FORM.imageUrl,
+        linkUrl:  prefill.link     ?? prefill.linkUrl ?? INITIAL_FORM.linkUrl,
+        position: prefill.position ?? INITIAL_FORM.position,
+        sortOrder:
+          prefill.priority  ?? prefill.sortOrder
+            ?? INITIAL_FORM.sortOrder,
+      });
+    } else {
+      setForm(INITIAL_FORM);
+    }
     setModalOpen(true);
   }
+
+  /* v3 Phase G: aiModal='create' 로 진입 시 등록 모달 자동 오픈 + aiDraft prefill. */
+  useEffect(() => {
+    if (aiModal !== 'create' || aiAutoOpenedRef.current || modalOpen) return;
+    aiAutoOpenedRef.current = true;
+    openCreateModal(aiDraft || null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiModal, aiDraft]);
 
   /* ── 모달 열기 (수정) ── */
   function openEditModal(banner) {
@@ -233,7 +263,7 @@ export default function BannerTab() {
           <IconButton onClick={loadBanners} disabled={loading} title="새로고침">
             <MdRefresh size={16} />
           </IconButton>
-          <PrimaryButton onClick={openCreateModal}>
+          <PrimaryButton onClick={() => openCreateModal()}>
             <MdAdd size={16} />
             배너 등록
           </PrimaryButton>

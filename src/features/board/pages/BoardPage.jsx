@@ -10,6 +10,11 @@
  *    신고/혐오표현을 통합 조회하여 우선순위 자동 정렬 후 빠른 처리를 지원한다.
  *    기존 신고 관리/혐오표현 탭은 상세 조치용으로 그대로 유지한다.
  *
+ * 2026-04-23 Phase G 배치 C:
+ *  - URL 쿼리파라미터 `?tab=...` 을 읽어 활성 탭 자동 세팅.
+ *  - `?reportId=N` 이 있으면 ReportTab 에 aiReportId prop 으로 전달 →
+ *    데이터 로드 후 해당 신고 행 조치 모달 자동 오픈.
+ *
  * 6개 서브탭:
  * - **모더레이션 큐**: 신고+혐오표현 통합 큐 (우선순위 자동 정렬, 빠른 처리) ← 신규
  * - 신고 관리: 신고 목록 + 블라인드/삭제/무시 상세 조치
@@ -22,8 +27,9 @@
  * $visible prop 기반 display:none 방식으로 처리합니다.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import styled from 'styled-components';
+import { useQueryParams } from '@/shared/hooks/useQueryParams';
 import ModerationQueueTab from '../components/ModerationQueueTab';
 import ReportTab from '../components/ReportTab';
 import ToxicityTab from '../components/ToxicityTab';
@@ -41,12 +47,49 @@ const TABS = [
   { key: 'categories', label: '카테고리' },
 ];
 
+/** 유효한 탭 키 집합 */
+const VALID_TAB_KEYS = new Set(TABS.map((t) => t.key));
+
 export default function BoardPage() {
-  /** 현재 활성 탭 키 (기본: 모더레이션 큐 — 운영자가 가장 먼저 확인해야 할 뷰) */
-  const [activeTab, setActiveTab] = useState('moderation');
+  const queryParams = useQueryParams();
+
+  /**
+   * 현재 활성 탭 키.
+   * URL ?tab= 쿼리가 유효한 값이면 초기값으로 사용. 아니면 'moderation' 으로 폴백.
+   */
+  const [activeTab, setActiveTab] = useState(() =>
+    VALID_TAB_KEYS.has(queryParams.tab) ? queryParams.tab : 'moderation'
+  );
 
   /** 방문한 탭 Set — 처음 방문 시에만 마운트 */
-  const [visited, setVisited] = useState(() => new Set(['moderation']));
+  const [visited, setVisited] = useState(() => {
+    const initial = VALID_TAB_KEYS.has(queryParams.tab) ? queryParams.tab : 'moderation';
+    return new Set([initial]);
+  });
+
+  /**
+   * URL ?tab= 쿼리 변경 시 탭 자동 동기화.
+   * AI 어시스턴트가 navigate 이벤트로 경로를 변경하면 해당 탭이 자동 활성화된다.
+   */
+  useEffect(() => {
+    const requestedTab = queryParams.tab;
+    if (requestedTab && VALID_TAB_KEYS.has(requestedTab)) {
+      setActiveTab(requestedTab);
+      setVisited((prev) => {
+        if (prev.has(requestedTab)) return prev;
+        const next = new Set(prev);
+        next.add(requestedTab);
+        return next;
+      });
+    }
+  }, [queryParams.tab]);
+
+  /**
+   * AI 어시스턴트가 ?reportId=N 쿼리로 특정 신고 행 직접 오픈을 요청한 경우.
+   * ReportTab 에 prop 으로 전달하여 데이터 로드 후 조치 모달을 자동으로 연다.
+   * 숫자로 변환 — 문자열이면 ID 매칭에 실패할 수 있으므로 Number() 로 정규화.
+   */
+  const aiReportId = queryParams.reportId ? Number(queryParams.reportId) : null;
 
   function handleTabClick(key) {
     setActiveTab(key);
@@ -88,7 +131,9 @@ export default function BoardPage() {
           {visited.has('moderation') && <ModerationQueueTab />}
         </TabContent>
         <TabContent $visible={activeTab === 'reports'}>
-          {visited.has('reports') && <ReportTab />}
+          {visited.has('reports') && (
+            <ReportTab aiReportId={aiReportId} />
+          )}
         </TabContent>
         <TabContent $visible={activeTab === 'toxicity'}>
           {visited.has('toxicity') && <ToxicityTab />}

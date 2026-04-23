@@ -42,6 +42,8 @@ import {
 import MovieSearchPicker from '@/shared/components/MovieSearchPicker';
 import { normalizeMovie } from '@/shared/components/movieSearchPickerUtils';
 import { fetchMovieDetail } from '@/features/data/api/dataApi';
+import { useAiPrefill } from '@/shared/hooks/useAiPrefill';
+import AiPrefillBanner from '@/shared/components/AiPrefillBanner';
 
 /** 페이지 크기 */
 const PAGE_SIZE = 10;
@@ -133,7 +135,15 @@ function parseOptionsJson(raw) {
   }
 }
 
-export default function QuizManagementTab() {
+/**
+ * @param {Object} props
+ * @param {string|null} [props.aiModal] - ContentEventsPage 가 전달하는 queryModal 값.
+ *   'create' 이면 AI 어시스턴트 draft prefill 과 함께 신규 등록 모달을 자동 오픈한다.
+ */
+export default function QuizManagementTab({ aiModal }) {
+  /* ── AI prefill (quiz_draft: ?tab=quiz&modal=create) ── */
+  const { draft, bannerText } = useAiPrefill();
+
   /* ── 목록 상태 ── */
   const [quizzes, setQuizzes] = useState([]);
   const [totalPages, setTotalPages] = useState(0);
@@ -240,6 +250,51 @@ export default function QuizManagementTab() {
   useEffect(() => {
     loadQuizzes();
   }, [loadQuizzes]);
+
+  /**
+   * aiModal='create' 일 때 신규 등록 모달을 자동 오픈.
+   * draft 가 있으면 quiz_draft 필드(question/choices→options/answerIndex→correctAnswer/explanation)를
+   * 폼 초기값으로 주입한다.
+   *
+   * draft_fields: movieId, question, choices(string[]), answerIndex(number), explanation
+   */
+  useEffect(() => {
+    if (aiModal !== 'create' || modalMode !== null) return;
+
+    const prefill = draft
+      ? {
+          ...EMPTY_FORM,
+          question:      draft.question    ?? EMPTY_FORM.question,
+          explanation:   draft.explanation ?? EMPTY_FORM.explanation,
+          /* choices(string[]) → 4칸 배열. 빈 칸은 '' 로 패딩. */
+          options: Array.isArray(draft.choices)
+            ? [0, 1, 2, 3].map((i) => draft.choices[i] ?? '')
+            : EMPTY_FORM.options,
+          /* answerIndex(0-based) → 해당 보기 텍스트를 correctAnswer 로 변환. */
+          correctAnswer:
+            typeof draft.answerIndex === 'number' && Array.isArray(draft.choices)
+              ? (draft.choices[draft.answerIndex] ?? EMPTY_FORM.correctAnswer)
+              : EMPTY_FORM.correctAnswer,
+        }
+      : EMPTY_FORM;
+
+    /* movieId draft 가 있으면 MovieSearchPicker chip 도 초기화 */
+    if (draft?.movieId) {
+      fetchMovieDetail(draft.movieId)
+        .then((detail) => {
+          const normalized = normalizeMovie(detail);
+          if (normalized) setFormMovie(normalized);
+        })
+        .catch(() => {
+          setFormMovie({ movieId: String(draft.movieId), title: draft.movieId, titleEn: '', releaseYear: '', posterPath: '' });
+        });
+    }
+
+    setForm(prefill);
+    setEditTargetId(null);
+    setModalMode(MODE_CREATE);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiModal]);
 
   /** 상태 필터 변경 — 첫 페이지로 초기화 */
   function handleStatusFilterChange(e) {
@@ -620,6 +675,9 @@ export default function QuizManagementTab() {
               {modalMode === MODE_CREATE ? '퀴즈 신규 등록 (PENDING)' : '퀴즈 수정'}
             </DialogTitle>
             <form onSubmit={handleSubmit}>
+              {/* ── AI 어시스턴트 prefill 안내 배너 (quiz_draft 가 있을 때만 노출) ── */}
+              {bannerText && <AiPrefillBanner text={bannerText} />}
+
               <FieldRow>
                 <Field>
                   {/*

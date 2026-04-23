@@ -10,6 +10,12 @@
  * - 등록·수정 모달: textarea 200자 카운터 / 카테고리 셀렉트 / displayOrder / isActive / startAt·endAt
  * - 페이징 컴포넌트 (ReviewVerificationTab 패턴 참고)
  *
+ * Phase G P1 (2026-04-23):
+ * - ?modal=create 쿼리 시 추천 칩 등록 모달 자동 오픈
+ * - AI 어시스턴트 draft(chat_suggestion_draft) → 모달 초기값 주입
+ *   draft 필드: surface, text, reason(→category 매핑), tags(미사용·무시)
+ * - 모달 상단 AiPrefillBanner 노출 (draft && isAiGenerated 조건)
+ *
  * @module features/ai/components/ChatSuggestionTab
  */
 
@@ -23,6 +29,9 @@ import {
   deleteChatSuggestion,
   toggleChatSuggestionActive,
 } from '../api/chatSuggestionsApi';
+import { useQueryParams } from '@/shared/hooks/useQueryParams';
+import { useAiPrefill } from '@/shared/hooks/useAiPrefill';
+import AiPrefillBanner from '@/shared/components/AiPrefillBanner';
 
 /** 페이지당 항목 수 */
 const PAGE_SIZE = 10;
@@ -45,6 +54,27 @@ const ACTIVE_FILTER_OPTIONS = [
   { value: 'true', label: '활성' },
   { value: 'false', label: '비활성' },
 ];
+
+/**
+ * AI 에이전트 채널(surface) 옵션 — 2026-04-23 추가.
+ * Backend ChatSuggestionService.ALLOWED_SURFACES 와 동일하게 유지해야 한다.
+ * 신규 채널 추가 시 이 배열 + Backend 화이트리스트 둘 다 업데이트.
+ */
+const SURFACE_OPTIONS = [
+  { value: '',                label: '전체 채널' },
+  { value: 'user_chat',       label: '유저 채팅' },
+  { value: 'admin_assistant', label: '관리자 AI 어시스턴트' },
+  { value: 'faq_chatbot',     label: 'FAQ 챗봇' },
+];
+
+/** 모달 폼에서 쓰는 surface 옵션 (등록 시 "전체 채널" 을 선택 못하게 하기 위해 분리) */
+const SURFACE_OPTIONS_FOR_FORM = SURFACE_OPTIONS.filter((o) => o.value !== '');
+
+/** surface 코드 → 라벨 매핑 (테이블 cell 렌더용) */
+const SURFACE_LABEL = SURFACE_OPTIONS.reduce((acc, o) => {
+  if (o.value) acc[o.value] = o.label;
+  return acc;
+}, {});
 
 /** ISO 날짜 문자열 → "YYYY.MM.DD HH:MM" 포맷 */
 function formatDate(dateStr) {
@@ -72,6 +102,9 @@ function toIsoEnd(dateStr) {
 const EMPTY_FORM = {
   text: '',
   category: '',
+  // 2026-04-23: surface 필드 추가. 기본값은 유저 채팅(가장 빈번한 등록 대상).
+  // 관리자가 AI 어시스턴트 / FAQ 챗봇 칩을 등록할 땐 셀렉트에서 바꿔준다.
+  surface: 'user_chat',
   isActive: true,
   startAt: '',
   endAt: '',
@@ -79,6 +112,16 @@ const EMPTY_FORM = {
 };
 
 export default function ChatSuggestionTab() {
+  /* ── URL 쿼리파라미터 / AI prefill ── */
+  /**
+   * ?modal=create → 추천 칩 등록 모달 자동 오픈.
+   * AI 어시스턴트가 draft(chat_suggestion_draft)를 location.state 에 심어두면
+   * 모달 초기값(surface, text, reason→category)으로 주입한다.
+   * tags 필드는 모달 폼에 대응 필드가 없어 무시한다.
+   */
+  const { modal: queryModal } = useQueryParams();
+  const { draft, isAiGenerated, bannerText } = useAiPrefill();
+
   /* ── 목록 상태 ── */
   const [rows, setRows] = useState([]);
   const [totalPages, setTotalPages] = useState(0);
@@ -86,6 +129,8 @@ export default function ChatSuggestionTab() {
   const [error, setError] = useState(null);
 
   /* ── 필터/페이지 ── */
+  // 2026-04-23: surface 필터 신규 — 4개 채널('' = 전체 / user_chat / admin_assistant / faq_chatbot)
+  const [surfaceFilter, setSurfaceFilter] = useState('');
   const [isActiveFilter, setIsActiveFilter] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -103,13 +148,14 @@ export default function ChatSuggestionTab() {
   /** API 쿼리 파라미터 조합 */
   const buildParams = useCallback(() => {
     const p = { page, size: PAGE_SIZE };
+    if (surfaceFilter) p.surface = surfaceFilter;  // 2026-04-23: surface 필터 전달
     if (isActiveFilter !== '') p.isActive = isActiveFilter === 'true';
     const from = toIsoStart(fromDate);
     const to = toIsoEnd(toDate);
     if (from) p.fromDate = from;
     if (to) p.toDate = to;
     return p;
-  }, [page, isActiveFilter, fromDate, toDate]);
+  }, [page, surfaceFilter, isActiveFilter, fromDate, toDate]);
 
   /** 목록 로드 */
   const loadRows = useCallback(async () => {
@@ -131,8 +177,43 @@ export default function ChatSuggestionTab() {
 
   useEffect(() => { loadRows(); }, [loadRows]);
 
+  /**
+   * 쿼리파라미터 자동 모달 오픈 처리.
+   *
+   * - ?modal=create : 추천 칩 등록 모달을 즉시 오픈.
+   *   draft(chat_suggestion_draft)가 있으면 surface/text/category 폼 초기값으로 주입.
+   *   draft.reason 은 category 필드에 매핑한다 (CATEGORY_OPTIONS 에 없는 값이면 '' 처리).
+   *   draft.tags 는 모달 폼에 대응 필드가 없으므로 무시한다.
+   *
+   * 이미 모달이 열려 있으면 중복 실행 방지.
+   */
+  useEffect(() => {
+    if (!queryModal || modalOpen) return;
+
+    if (queryModal === 'create') {
+      const validCategories = CATEGORY_OPTIONS.map((o) => o.value);
+      /* draft.reason → category 매핑. 유효하지 않은 값이면 '' (카테고리 없음) */
+      const mappedCategory = draft?.reason && validCategories.includes(draft.reason)
+        ? draft.reason
+        : '';
+      const prefill = draft
+        ? {
+            ...EMPTY_FORM,
+            text:     draft.text    ?? EMPTY_FORM.text,
+            surface:  draft.surface ?? EMPTY_FORM.surface,
+            category: mappedCategory,
+          }
+        : EMPTY_FORM;
+      setEditTarget(null);
+      setForm(prefill);
+      setModalOpen(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryModal]);
+
   /** 필터 초기화 */
   function resetFilters() {
+    setSurfaceFilter('');
     setIsActiveFilter('');
     setFromDate('');
     setToDate('');
@@ -181,6 +262,8 @@ export default function ChatSuggestionTab() {
     setForm({
       text: row.text ?? '',
       category: row.category ?? '',
+      // 2026-04-23: surface 복원. 레거시 레코드(null) 는 기본값 user_chat.
+      surface: row.surface || 'user_chat',
       isActive: row.isActive ?? true,
       // datetime-local 입력에 맞게 ISO 문자열을 "YYYY-MM-DDTHH:MM" 형태로 자른다
       startAt: row.startAt ? row.startAt.slice(0, 16) : '',
@@ -219,6 +302,8 @@ export default function ChatSuggestionTab() {
     const payload = {
       text: form.text.trim(),
       category: form.category || undefined,
+      // 2026-04-23: surface 전달. 빈 문자열 방어로 기본 user_chat.
+      surface: form.surface || 'user_chat',
       isActive: form.isActive,
       startAt: form.startAt || undefined,
       endAt: form.endAt || undefined,
@@ -260,6 +345,18 @@ export default function ChatSuggestionTab() {
       {/* ── 필터 툴바 ── */}
       <Toolbar>
         <ToolbarLeft>
+          <FilterGroup>
+            {/* 2026-04-23: AI 에이전트 채널(surface) 필터 신규 — 4개 옵션 */}
+            <FilterLabel>채널</FilterLabel>
+            <FilterSelect
+              value={surfaceFilter}
+              onChange={(e) => withPageReset(setSurfaceFilter)(e.target.value)}
+            >
+              {SURFACE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </FilterSelect>
+          </FilterGroup>
           <FilterGroup>
             <FilterLabel>활성 상태</FilterLabel>
             <FilterSelect
@@ -303,6 +400,8 @@ export default function ChatSuggestionTab() {
           <thead>
             <tr>
               <Th $w="60px">ID</Th>
+              {/* 2026-04-23: 채널 컬럼 추가 — 유저 채팅/관리자 AI/FAQ 챗봇 구분 */}
+              <Th $w="150px">채널</Th>
               <Th>문구</Th>
               <Th $w="90px">카테고리</Th>
               <Th $w="70px">활성</Th>
@@ -316,11 +415,11 @@ export default function ChatSuggestionTab() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={9}><CenterCell>불러오는 중...</CenterCell></td>
+                <td colSpan={10}><CenterCell>불러오는 중...</CenterCell></td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={9}>
+                <td colSpan={10}>
                   <CenterCell>등록된 추천 칩이 없습니다. 신규 등록 버튼으로 추가하세요.</CenterCell>
                 </td>
               </tr>
@@ -328,6 +427,12 @@ export default function ChatSuggestionTab() {
               rows.map((row) => (
                 <Tr key={row.id}>
                   <Td><MutedText>{row.id}</MutedText></Td>
+                  <Td>
+                    {/* 2026-04-23: 채널 배지 — SURFACE_LABEL 매핑에 없으면 원문 그대로 */}
+                    <SurfaceBadge $surface={row.surface || 'user_chat'}>
+                      {SURFACE_LABEL[row.surface] || row.surface || '유저 채팅'}
+                    </SurfaceBadge>
+                  </Td>
                   <Td><ChipText>{row.text}</ChipText></Td>
                   <Td>
                     <CategoryBadge>{row.category || '-'}</CategoryBadge>
@@ -402,6 +507,9 @@ export default function ChatSuggestionTab() {
           <ModalBox onClick={(e) => e.stopPropagation()}>
             <ModalTitle>{editTarget ? '추천 칩 수정' : '추천 칩 등록'}</ModalTitle>
             <ModalForm onSubmit={handleFormSubmit}>
+              {/* ── AI 어시스턴트 prefill 안내 배너 (draft 가 있을 때만 노출) ── */}
+              {bannerText && <AiPrefillBanner text={bannerText} />}
+
               {/* 칩 문구 — 200자 카운터 */}
               <FormField>
                 <FormLabel>칩 문구 <Required>*</Required></FormLabel>
@@ -417,6 +525,19 @@ export default function ChatSuggestionTab() {
                 <CharCount $over={form.text.length >= 200}>
                   {form.text.length} / 200
                 </CharCount>
+              </FormField>
+
+              {/* AI 에이전트 채널 (2026-04-23 추가) — 어느 채널 칩 풀에 등록할지 결정 */}
+              <FormField>
+                <FormLabel>AI 채널</FormLabel>
+                <FormSelect name="surface" value={form.surface} onChange={handleFormChange}>
+                  {SURFACE_OPTIONS_FOR_FORM.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </FormSelect>
+                <FieldHint>
+                  이 칩이 노출될 AI 에이전트 채널. 유저 채팅은 홈 채팅창, 관리자 AI는 /admin/assistant, FAQ 챗봇은 고객센터 위젯에 표시됩니다.
+                </FieldHint>
               </FormField>
 
               {/* 카테고리 */}
@@ -841,4 +962,36 @@ const SubmitBtn = styled.button`
   cursor: pointer;
   &:hover { opacity: 0.88; }
   &:disabled { opacity: 0.4; cursor: not-allowed; }
+`;
+
+
+/* 2026-04-23: surface(AI 채널) 관련 styled-components 추가 */
+
+// 채널별 색상 — 유저 채팅(primary), 관리자 AI(info), FAQ 챗봇(warning)
+const SurfaceBadge = styled.span`
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  white-space: nowrap;
+
+  ${({ $surface, theme }) => {
+    if ($surface === 'admin_assistant') {
+      return `background: ${theme.colors.infoLight}; color: ${theme.colors.info};`;
+    }
+    if ($surface === 'faq_chatbot') {
+      return `background: ${theme.colors.warningLight}; color: ${theme.colors.warning};`;
+    }
+    // 기본 user_chat (또는 알 수 없는 값) — primary 계열
+    return `background: ${theme.colors.primaryLight}; color: ${theme.colors.primary};`;
+  }}
+`;
+
+// 모달 셀렉트 하단 도움말
+const FieldHint = styled.p`
+  margin: 4px 0 0 0;
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.textMuted};
+  line-height: 1.4;
 `;

@@ -16,7 +16,13 @@
  *  - done         : {}
  *  - error        : { message, ... }
  *
- * Step 3+ 에서 추가될 이벤트(확장성을 위해 dispatcher 에 케이스만 미리 둠):
+ * Phase F (v3, 2026-04-23) 신규 추가 이벤트:
+ *  - form_prefill : { target_path, draft_fields, action_label, summary, tool_name }
+ *                   AI 가 폼 초안을 작성했을 때 발행. Client 가 "열기" 버튼을 렌더.
+ *  - navigation   : { target_path, label, context_summary, candidates?, tool_name }
+ *                   AI 가 대상 화면을 찾아 링크를 제공할 때 발행.
+ *
+ * 예비 보관 이벤트(확장성):
  *  - confirmation_required / chart_data / table_data / report_chunk
  *
  * 보안:
@@ -92,6 +98,8 @@ async function _postAdminAssistantSse(path, bodyObj, callbacks, signal) {
  * @param {Function} [callbacks.onToolResult]
  * @param {Function} [callbacks.onToken]
  * @param {Function} [callbacks.onConfirmationRequired]
+ * @param {Function} [callbacks.onFormPrefill]   form_prefill 이벤트 — AI 가 폼 초안 완성 시
+ * @param {Function} [callbacks.onNavigation]    navigation 이벤트 — AI 가 화면 링크 제공 시
  * @param {Function} [callbacks.onChartData]
  * @param {Function} [callbacks.onTableData]
  * @param {Function} [callbacks.onDone]
@@ -188,6 +196,8 @@ function dispatch(eventType, data, callbacks) {
     onToolResult,
     onToken,
     onConfirmationRequired,
+    onFormPrefill,
+    onNavigation,
     onChartData,
     onTableData,
     onReportChunk,
@@ -211,7 +221,17 @@ function dispatch(eventType, data, callbacks) {
     case 'token':
       onToken?.(data);
       break;
-    // Step 3+ 이벤트는 현재 Agent 가 발행하지 않지만 미래 호환을 위해 케이스 유지
+    // v3 Phase F 신규 — AI 가 폼 초안을 완성했을 때 발행.
+    // payload: { target_path, draft_fields, action_label, summary, tool_name }
+    case 'form_prefill':
+      onFormPrefill?.(data);
+      break;
+    // v3 Phase F 신규 — AI 가 대상 관리 화면 링크를 제공할 때 발행.
+    // payload: { target_path, label, context_summary, candidates?, tool_name }
+    case 'navigation':
+      onNavigation?.(data);
+      break;
+    // 예비 보관 — v3 에서 미사용. Agent 가 발행하지 않으나 케이스 유지(호환성).
     case 'confirmation_required':
       onConfirmationRequired?.(data);
       break;
@@ -231,7 +251,7 @@ function dispatch(eventType, data, callbacks) {
       onError?.(data);
       break;
     default:
-      // 미등록 이벤트는 조용히 무시 — Agent 가 신규 이벤트를 먼저 배포한 상태에서도 폭주 방지
+      // 미등록 이벤트는 조용히 무시 — Agent 가 신규 이벤트를 먼저 배포해도 폭주 방지
       break;
   }
 }

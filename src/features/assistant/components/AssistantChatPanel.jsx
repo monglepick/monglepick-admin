@@ -12,20 +12,17 @@ import { useEffect, useRef } from 'react';
 import styled from 'styled-components';
 import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
-import ConfirmationDialog from './ConfirmationDialog';
+// ConfirmationDialog: v3 에서 미사용 (HITL/risk_gate 제거). 컴포넌트 파일은 v3 안정화까지 예비 보관.
+// import ConfirmationDialog from './ConfirmationDialog';
+import FormPrefillCard from './FormPrefillCard';
+import NavigationCard from './NavigationCard';
+import useAssistantQuickPrompts from '../hooks/useAssistantQuickPrompts';
 import { MdAutoAwesome, MdRefresh } from 'react-icons/md';
 
 
-/**
- * 빈 상태에서 보여줄 빠른 질문 칩.
- * Step 1~5a 기준 stats + 일부 리소스 조회 + 쓰기 예시 혼합.
- */
-const QUICK_PROMPTS = [
-  '지난 7일 DAU 추이 보여줘',
-  '이번 달 환불된 결제 주문 목록',
-  '대기 중인 고객센터 티켓 몇 건이야?',
-  'AI 추천 서비스 현황 알려줘',
-];
+// 2026-04-23: 빈 상태 빠른 질문 칩을 Backend `chat_suggestions` 테이블의
+// `surface='admin_assistant'` 풀에서 동적으로 받아오도록 전환. 관리자 페이지에서
+// CRUD 가능. Backend 응답이 비어있을 때는 훅 내부의 FALLBACK_PROMPTS 4개가 노출된다.
 
 
 export default function AssistantChatPanel({
@@ -53,6 +50,10 @@ export default function AssistantChatPanel({
   const isEmpty = messages.length === 0;
   // 입력창은 스트리밍 / 승인 대기 중 모두 잠금
   const inputLocked = isStreaming || isAwaitingConfirmation;
+
+  // 2026-04-23: 빈 상태 칩 동적 조회. `chat_suggestions.surface='admin_assistant'` 풀에서
+  // 랜덤 4개. 응답 없으면 훅 내부 FALLBACK_PROMPTS 가 표시된다.
+  const quickPrompts = useAssistantQuickPrompts(4);
 
   return (
     <PanelWrapper>
@@ -85,7 +86,7 @@ export default function AssistantChatPanel({
               결과는 아래에 표·텍스트로 정리해 드려요.
             </EmptyDesc>
             <ChipRow>
-              {QUICK_PROMPTS.map((q) => (
+              {quickPrompts.map((q) => (
                 <Chip key={q} type="button" onClick={() => onSubmit?.(q)}>
                   {q}
                 </Chip>
@@ -95,7 +96,20 @@ export default function AssistantChatPanel({
         ) : (
           <MessageList>
             {messages.map((m) => (
-              <MessageBubble key={m.id} message={m} />
+              <MessageItem key={m.id}>
+                <MessageBubble message={m} />
+                {/* v3 Phase F: form_prefill 이벤트 도착 시 FormPrefillCard 렌더.
+                    assistant 메시지에 formPrefill 필드가 채워졌을 때만 표시.
+                    버튼 클릭 → navigate(target_path, { state: { draft, source } }) */}
+                {m.role === 'assistant' && m.formPrefill && (
+                  <FormPrefillCard data={m.formPrefill} />
+                )}
+                {/* v3 Phase F: navigation 이벤트 도착 시 NavigationCard 렌더.
+                    단건(target_path) 또는 다건(candidates) 모두 이 컴포넌트가 처리. */}
+                {m.role === 'assistant' && m.navigation && (
+                  <NavigationCard data={m.navigation} />
+                )}
+              </MessageItem>
             ))}
             {(isStreaming || isAwaitingConfirmation) && currentPhase && (
               <PhaseBadge $variant={isAwaitingConfirmation ? 'warning' : 'info'}>
@@ -123,8 +137,8 @@ export default function AssistantChatPanel({
         }
       />
 
-      {/* Step 5b: Tier 2/3 쓰기 작업 승인 모달.
-          awaiting_confirmation 상태에서만 payload 가 채워지고, 승인/거절 후에 사라짐. */}
+      {/* v3 에서 ConfirmationDialog 미사용 (HITL/risk_gate 제거).
+          v3 안정화 후 최종 삭제 예정. 예비 보관.
       {isAwaitingConfirmation && confirmation && (
         <ConfirmationDialog
           payload={confirmation}
@@ -132,6 +146,7 @@ export default function AssistantChatPanel({
           onReject={onReject}
         />
       )}
+      */}
     </PanelWrapper>
   );
 }
@@ -261,6 +276,16 @@ const Chip = styled.button`
 const MessageList = styled.div`
   display: flex;
   flex-direction: column;
+`;
+
+/**
+ * 메시지 단위 래퍼 — MessageBubble + FormPrefillCard/NavigationCard 를 묶어
+ * 카드가 버블 바로 아래 좌측 정렬로 붙도록 한다.
+ */
+const MessageItem = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
 `;
 
 const PhaseBadge = styled.div`

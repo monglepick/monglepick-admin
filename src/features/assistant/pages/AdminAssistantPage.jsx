@@ -9,11 +9,16 @@
  *  - useAdminAssistant 훅이 SSE 스트림을 관리
  *  - Agent `/api/v1/admin/assistant/chat` 에 JWT 포함 요청
  *
- * 설계서: docs/관리자_AI에이전트_설계서.md §9 (UI 배치)
+ * Phase F (v3, 2026-04-23):
+ *  - form_prefill / navigation SSE 이벤트 → FormPrefillCard / NavigationCard 렌더
+ *  - ConfirmationDialog 렌더 지점 제거 (컴포넌트 파일은 예비 보관)
+ *  - AI 는 쓰기를 수행하지 않음. 저장/실행은 관리자가 해당 화면에서 직접.
  *
- * 후속 Step 에서 추가 예정:
+ * 설계서: docs/관리자_AI에이전트_v3_재설계.md §7 (Admin Client 연동)
+ *
+ * 후속 작업:
  *  - 좌측 세션 리스트 (과거 대화 재진입)
- *  - ConfirmationDialog (Tier 2/3 HITL 승인)
+ *  - 대상 페이지(NoticeCreateModal 등) location.state.draft 초기 폼 주입
  *  - ChartRenderer / TableRenderer (chart_data / table_data 이벤트)
  */
 
@@ -41,8 +46,9 @@ export default function AdminAssistantPage() {
       <PageHeader>
         <PageTitle>🤖 AI 어시스턴트</PageTitle>
         <PageDesc>
-          자연어로 통계·조회·공지 등록 등 관리 작업을 요청하세요. 실행 도구와 결과가
-          항상 투명하게 표시됩니다. 쓰기 작업은 실행 전 관리자 승인을 한 번 더 받아요.
+          자연어로 통계·조회·공지 초안 작성 등 관리 작업을 요청하세요. AI 는 데이터를
+          조회하고 폼을 채워주거나 화면으로 안내합니다. 실제 저장·실행은 해당 화면에서
+          관리자가 직접 수행합니다.
         </PageDesc>
       </PageHeader>
 
