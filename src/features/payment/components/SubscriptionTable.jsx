@@ -21,7 +21,7 @@
  * @module SubscriptionTable
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import styled from 'styled-components';
 import { MdRefresh } from 'react-icons/md';
 import { fetchSubscriptions, cancelSubscription, extendSubscription } from '../api/paymentApi';
@@ -91,7 +91,17 @@ function resolvePlanLabel(sub) {
   return sub?.planCode ?? '-';
 }
 
-export default function SubscriptionTable() {
+/**
+ * 구독 관리 테이블.
+ *
+ * @param {Object} props
+ * @param {Object|null} [props.aiSubscriptionRequest] - AI 어시스턴트가 navigate 로 주입한 컨텍스트.
+ *   { subscriptionId: string|null, userId: string|null }
+ *   - userId 가 있으면 목록 로드 후 해당 사용자로 자동 필터 세팅.
+ *   - subscriptionId 가 있으면 해당 행을 하이라이트 처리.
+ *   - 1회만 소비(consumedRef)하여 중복 발동 방지.
+ */
+export default function SubscriptionTable({ aiSubscriptionRequest = null }) {
   /* 목록 상태 */
   const [subscriptions, setSubscriptions] = useState([]);
   const [totalElements, setTotalElements] = useState(0);
@@ -107,6 +117,19 @@ export default function SubscriptionTable() {
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 20;
 
+  /* v3 Phase G P1-B: AI 어시스턴트 자동 필터/하이라이트 상태 */
+  /** AI 가 지정한 구독 ID — 해당 행에 하이라이트 테두리를 적용 */
+  const [aiHighlightId, setAiHighlightId] = useState(null);
+  /** aiSubscriptionRequest 는 마운트 1회만 소비 */
+  const aiRequestConsumedRef = useRef(false);
+
+  /* 날짜 범위 필터 — 구독 생성일 기준 (2026-04-23 추가, AuditLogTab 패턴)
+   * Input 상태(타이핑 중)와 Filter 상태(확정된 값, API 전송용)를 분리한다. */
+  const [fromDateInput, setFromDateInput] = useState('');
+  const [toDateInput, setToDateInput] = useState('');
+  const [fromDateFilter, setFromDateFilter] = useState('');
+  const [toDateFilter, setToDateFilter] = useState('');
+
   /* 개별 액션 처리 중인 ID */
   const [actionId, setActionId] = useState(null);
 
@@ -119,6 +142,15 @@ export default function SubscriptionTable() {
     error: null,
   });
 
+  /**
+   * datetime-local 입력값을 Backend 가 받는 ISO-8601 초 단위 문자열로 변환.
+   * 빈 문자열이면 undefined 반환 → 요청 파라미터에서 자동 제외.
+   */
+  function toIsoOrUndefined(dtLocal) {
+    if (!dtLocal) return undefined;
+    return dtLocal.length === 16 ? `${dtLocal}:00` : dtLocal;
+  }
+
   /** 구독 목록 조회 */
   const loadSubscriptions = useCallback(async () => {
     try {
@@ -128,6 +160,10 @@ export default function SubscriptionTable() {
       if (statusFilter) params.status = statusFilter;
       if (planFilter) params.planCode = planFilter;
       if (selectedUser?.userId) params.userId = selectedUser.userId;
+      const fromIso = toIsoOrUndefined(fromDateFilter);
+      const toIso   = toIsoOrUndefined(toDateFilter);
+      if (fromIso) params.fromDate = fromIso;
+      if (toIso)   params.toDate   = toIso;
       const result = await fetchSubscriptions(params);
 
       /* 백엔드가 planCode/userId 필터를 아직 미지원하는 환경을 대비한 클라이언트 필터.
@@ -148,12 +184,37 @@ export default function SubscriptionTable() {
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter, planFilter, selectedUser]);
+  }, [page, statusFilter, planFilter, selectedUser, fromDateFilter, toDateFilter]);
 
   /* 초기 로드 및 의존성 변경 시 재조회 */
   useEffect(() => {
     loadSubscriptions();
   }, [loadSubscriptions]);
+
+  /* v3 Phase G P1-B: AI 어시스턴트가 navigate(?tab=subscription&subscriptionId=...&userId=...)
+   * 로 진입시킨 경우, 목록 로드 완료 후 1회만 아래를 수행한다.
+   *  1) userId 가 있으면 selectedUser 를 { userId } 로 세팅 → loadSubscriptions 재실행으로 필터 적용
+   *  2) subscriptionId 가 있으면 aiHighlightId 세팅 → 해당 행 하이라이트
+   * 상세 사이드 패널이 없어 모달 자동 오픈은 불가하므로 최소한 검색 필터+하이라이트로 처리.
+   * consumedRef 로 중복 발동(리렌더) 차단. */
+  useEffect(() => {
+    if (aiRequestConsumedRef.current) return;
+    if (!aiSubscriptionRequest) return;
+    if (loading) return;
+
+    aiRequestConsumedRef.current = true;
+    const { subscriptionId, userId } = aiSubscriptionRequest;
+
+    if (userId) {
+      /* UserSearchPicker 가 { userId } 객체를 selectedUser 로 받는 구조에 맞춰 주입.
+       * nickname/email 이 없어도 loadSubscriptions 의 클라이언트 필터가 userId 로 걸러낸다. */
+      setSelectedUser({ userId });
+      setPage(0);
+    }
+    if (subscriptionId) {
+      setAiHighlightId(subscriptionId);
+    }
+  }, [aiSubscriptionRequest, loading]);
 
   /* 필터 변경 시 페이지 초기화 */
   function handleStatusFilter(value) {
@@ -170,6 +231,24 @@ export default function SubscriptionTable() {
     setSelectedUser(user);
     setPage(0);
   }
+
+  /** 날짜 필터 적용 — 타이핑 중 값을 확정 Filter 로 커밋 */
+  function handleDateApply(e) {
+    e.preventDefault();
+    setFromDateFilter(fromDateInput);
+    setToDateFilter(toDateInput);
+    setPage(0);
+  }
+
+  function handleDateReset() {
+    setFromDateInput('');
+    setToDateInput('');
+    setFromDateFilter('');
+    setToDateFilter('');
+    setPage(0);
+  }
+
+  const hasDateFilter = !!fromDateFilter || !!toDateFilter;
 
   /* ── 모달 열기/닫기 ── */
 
@@ -285,6 +364,48 @@ export default function SubscriptionTable() {
         />
       </UserSearchRow>
 
+      {/*
+        날짜 범위 필터 (2026-04-23 추가) — 구독 생성일(createdAt) 기준.
+        fromDate inclusive, toDate exclusive. "기간 적용" 버튼 클릭 시에만 재조회된다.
+      */}
+      <DateFilterForm onSubmit={handleDateApply}>
+        <DateFieldWrap>
+          <DateLabel>시작일</DateLabel>
+          <DateInput
+            type="datetime-local"
+            value={fromDateInput}
+            onChange={(e) => setFromDateInput(e.target.value)}
+            max={toDateInput || undefined}
+            title="구독 생성일 시작 (inclusive)"
+          />
+        </DateFieldWrap>
+        <DateFieldWrap>
+          <DateLabel>종료일</DateLabel>
+          <DateInput
+            type="datetime-local"
+            value={toDateInput}
+            onChange={(e) => setToDateInput(e.target.value)}
+            min={fromDateInput || undefined}
+            title="구독 생성일 종료 (exclusive)"
+          />
+        </DateFieldWrap>
+        <ApplyButton type="submit">기간 적용</ApplyButton>
+        {hasDateFilter && (
+          <ResetButton type="button" onClick={handleDateReset}>
+            초기화
+          </ResetButton>
+        )}
+        {hasDateFilter && (
+          <AppliedBadge>
+            적용됨: <strong>
+              {fromDateFilter ? fromDateFilter.replace('T', ' ') : '처음'}
+              {' ~ '}
+              {toDateFilter ? toDateFilter.replace('T', ' ') : '지금'}
+            </strong>
+          </AppliedBadge>
+        )}
+      </DateFilterForm>
+
       {error && <ErrorMsg>{error}</ErrorMsg>}
 
       <TableWrapper>
@@ -316,7 +437,11 @@ export default function SubscriptionTable() {
                 const canExtend = sub.status === 'ACTIVE' || sub.status === 'CANCELLED';
 
                 return (
-                  <tr key={sub.subscriptionId}>
+                  /* v3 Phase G P1-B: aiHighlightId 와 일치하는 행에 하이라이트 테두리 적용 */
+                  <HighlightTr
+                    key={sub.subscriptionId}
+                    $highlight={aiHighlightId === sub.subscriptionId}
+                  >
                     <Td mono>{sub.subscriptionId ?? '-'}</Td>
                     <Td>
                       {/* 닉네임/이메일 우선 — UUID 는 보조 표시 */}
@@ -374,7 +499,7 @@ export default function SubscriptionTable() {
                         )}
                       </ActionGroup>
                     </Td>
-                  </tr>
+                  </HighlightTr>
                 );
               })}
             </tbody>
@@ -521,6 +646,79 @@ const UserSearchLabel = styled.span`
   font-weight: ${({ theme }) => theme.fontWeights.medium};
   color: ${({ theme }) => theme.colors.textSecondary};
   white-space: nowrap;
+`;
+
+/* ── 날짜 범위 필터 (2026-04-23 추가) ── */
+
+const DateFilterForm = styled.form`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.sm};
+  flex-wrap: wrap;
+  margin-bottom: ${({ theme }) => theme.spacing.lg};
+  padding: ${({ theme }) => theme.spacing.md};
+  background: ${({ theme }) => theme.colors.bgHover};
+  border: 1px solid ${({ theme }) => theme.colors.borderLight};
+  border-radius: ${({ theme }) => theme.layout.cardRadius};
+`;
+
+const DateFieldWrap = styled.label`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+`;
+
+const DateLabel = styled.span`
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.textMuted};
+  white-space: nowrap;
+`;
+
+const DateInput = styled.input`
+  height: 32px;
+  padding: 0 8px;
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  background: #ffffff;
+  color: ${({ theme }) => theme.colors.textPrimary};
+  font-family: ${({ theme }) => theme.fonts.base};
+
+  &:focus {
+    outline: none;
+    border-color: ${({ theme }) => theme.colors.primary};
+  }
+`;
+
+const ApplyButton = styled.button`
+  padding: 5px 12px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  background: ${({ theme }) => theme.colors.primary};
+  color: #fff;
+  border-radius: 4px;
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  &:hover { background: ${({ theme }) => theme.colors.primaryHover}; }
+`;
+
+const ResetButton = styled.button`
+  padding: 5px 10px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  &:hover { background: ${({ theme }) => theme.colors.bgHover}; }
+`;
+
+const AppliedBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  background: ${({ theme }) => theme.colors.primaryLight};
+  color: ${({ theme }) => theme.colors.primary};
+  border-radius: 20px;
+  border: 1px solid ${({ theme }) => theme.colors.primary};
 `;
 
 const TableWrapper = styled.div`

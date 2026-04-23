@@ -78,6 +78,7 @@ export default function PaymentOrderTable({
   orderTypeFilter,
   title,
   showFailedSection = true,
+  aiOrderRequest = null,
 }) {
   /* 결제 목록 상태 */
   const [orders, setOrders] = useState([]);
@@ -91,6 +92,14 @@ export default function PaymentOrderTable({
   const [selectedUser, setSelectedUser] = useState(null);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 20;
+
+  /* 날짜 범위 필터 — 타이핑 중 상태(Input)와 확정 상태(Filter)를 분리.
+   * 타이핑 중 매번 재조회하지 않도록 "적용" 버튼 클릭 시에만 Filter 로 커밋된다.
+   * (2026-04-23 추가, AuditLogTab 패턴 재사용) */
+  const [fromDateInput, setFromDateInput] = useState('');
+  const [toDateInput, setToDateInput] = useState('');
+  const [fromDateFilter, setFromDateFilter] = useState('');
+  const [toDateFilter, setToDateFilter] = useState('');
 
   /* 보상 실패 목록 상태 */
   const [failedOrders, setFailedOrders] = useState([]);
@@ -113,6 +122,16 @@ export default function PaymentOrderTable({
   const [refundTarget, setRefundTarget] = useState(null);
   const [refundModalOpen, setRefundModalOpen] = useState(false);
 
+  /**
+   * datetime-local 입력값(예: "2026-04-01T14:30")을 Backend 가 받는
+   * ISO-8601 초 단위 문자열("2026-04-01T14:30:00") 로 변환한다.
+   * 빈 문자열이면 undefined 반환 → 요청 파라미터에서 자동 제외.
+   */
+  function toIsoOrUndefined(dtLocal) {
+    if (!dtLocal) return undefined;
+    return dtLocal.length === 16 ? `${dtLocal}:00` : dtLocal;
+  }
+
   /** 결제 목록 조회 */
   const loadOrders = useCallback(async () => {
     try {
@@ -122,6 +141,10 @@ export default function PaymentOrderTable({
       if (statusFilter) params.status = statusFilter;
       if (orderTypeFilter) params.orderType = orderTypeFilter;
       if (selectedUser?.userId) params.userId = selectedUser.userId;
+      const fromIso = toIsoOrUndefined(fromDateFilter);
+      const toIso   = toIsoOrUndefined(toDateFilter);
+      if (fromIso) params.fromDate = fromIso;
+      if (toIso)   params.toDate   = toIso;
       const result = await fetchPaymentOrders(params);
 
       /* 백엔드가 orderType/userId 필터를 미지원하더라도 최소한의 UX 보장을 위한 클라이언트 필터 fallback */
@@ -141,7 +164,7 @@ export default function PaymentOrderTable({
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter, orderTypeFilter, selectedUser]);
+  }, [page, statusFilter, orderTypeFilter, selectedUser, fromDateFilter, toDateFilter]);
 
   /** 보상 실패 목록 조회 */
   const loadFailedOrders = useCallback(async () => {
@@ -242,11 +265,45 @@ export default function PaymentOrderTable({
     setPage(0);
   }
 
+  /** 날짜 필터 적용 — 타이핑 중 값을 확정 Filter 로 커밋하고 첫 페이지로 이동 */
+  function handleDateApply(e) {
+    e.preventDefault();
+    setFromDateFilter(fromDateInput);
+    setToDateFilter(toDateInput);
+    setPage(0);
+  }
+
+  /** 날짜 필터 초기화 — 타이핑/확정 양쪽 모두 리셋 */
+  function handleDateReset() {
+    setFromDateInput('');
+    setToDateInput('');
+    setFromDateFilter('');
+    setToDateFilter('');
+    setPage(0);
+  }
+
+  const hasDateFilter = !!fromDateFilter || !!toDateFilter;
+
   /** 환불 모달 오픈 */
   function openRefund(order) {
     setRefundTarget(order);
     setRefundModalOpen(true);
   }
+
+  /* v3 Phase G: AI Assistant 가 navigate(?orderId=...&action=refund) 로 진입시킨 경우,
+   * 목록 로드 후 해당 주문을 찾아 환불 모달을 자동 오픈.
+   * 1회만 실행되어야 하므로 consumedRef 로 중복 발동 차단. */
+  const aiRequestConsumedRef = useRef(false);
+  useEffect(() => {
+    if (aiRequestConsumedRef.current) return;
+    if (!aiOrderRequest?.orderId || aiOrderRequest.action !== 'refund') return;
+    if (loading) return;
+    const matched = orders.find((o) => o.orderId === aiOrderRequest.orderId);
+    if (matched) {
+      aiRequestConsumedRef.current = true;
+      openRefund(matched);
+    }
+  }, [aiOrderRequest, orders, loading]);
 
   /** 환불 성공 후 목록 갱신 */
   function handleRefundSuccess() {
@@ -429,6 +486,49 @@ export default function PaymentOrderTable({
             placeholder="이메일 또는 닉네임으로 검색"
           />
         </UserSearchRow>
+
+        {/*
+          날짜 범위 필터 (2026-04-23 추가).
+          결제 주문 생성일(createdAt) 기준 inclusive(from) ~ exclusive(to).
+          "적용" 버튼 클릭 시 재조회되어 타이핑 중 불필요한 호출을 방지한다.
+        */}
+        <DateFilterForm onSubmit={handleDateApply}>
+          <DateFieldWrap>
+            <DateLabel>시작일</DateLabel>
+            <DateInput
+              type="datetime-local"
+              value={fromDateInput}
+              onChange={(e) => setFromDateInput(e.target.value)}
+              max={toDateInput || undefined}
+              title="생성일 시작 (inclusive)"
+            />
+          </DateFieldWrap>
+          <DateFieldWrap>
+            <DateLabel>종료일</DateLabel>
+            <DateInput
+              type="datetime-local"
+              value={toDateInput}
+              onChange={(e) => setToDateInput(e.target.value)}
+              min={fromDateInput || undefined}
+              title="생성일 종료 (exclusive)"
+            />
+          </DateFieldWrap>
+          <ApplyButton type="submit">기간 적용</ApplyButton>
+          {hasDateFilter && (
+            <ResetButton type="button" onClick={handleDateReset}>
+              초기화
+            </ResetButton>
+          )}
+          {hasDateFilter && (
+            <AppliedBadge>
+              적용됨: <strong>
+                {fromDateFilter ? fromDateFilter.replace('T', ' ') : '처음'}
+                {' ~ '}
+                {toDateFilter ? toDateFilter.replace('T', ' ') : '지금'}
+              </strong>
+            </AppliedBadge>
+          )}
+        </DateFilterForm>
 
         {error && <ErrorMsg>{error}</ErrorMsg>}
 
@@ -701,6 +801,81 @@ const UserSearchLabel = styled.span`
   font-weight: ${({ theme }) => theme.fontWeights.medium};
   color: ${({ theme }) => theme.colors.textSecondary};
   white-space: nowrap;
+`;
+
+/* ── 날짜 범위 필터 (2026-04-23 추가) ── */
+
+/** 날짜 필터 폼 — 검색 행과 동일한 여백/색감으로 툴바 느낌 유지 */
+const DateFilterForm = styled.form`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.sm};
+  flex-wrap: wrap;
+  margin-bottom: ${({ theme }) => theme.spacing.lg};
+  padding: ${({ theme }) => theme.spacing.md};
+  background: ${({ theme }) => theme.colors.bgHover};
+  border: 1px solid ${({ theme }) => theme.colors.borderLight};
+  border-radius: ${({ theme }) => theme.layout.cardRadius};
+`;
+
+const DateFieldWrap = styled.label`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+`;
+
+const DateLabel = styled.span`
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.textMuted};
+  white-space: nowrap;
+`;
+
+const DateInput = styled.input`
+  height: 32px;
+  padding: 0 8px;
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  background: #ffffff;
+  color: ${({ theme }) => theme.colors.textPrimary};
+  font-family: ${({ theme }) => theme.fonts.base};
+
+  &:focus {
+    outline: none;
+    border-color: ${({ theme }) => theme.colors.primary};
+  }
+`;
+
+const ApplyButton = styled.button`
+  padding: 5px 12px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  background: ${({ theme }) => theme.colors.primary};
+  color: #fff;
+  border-radius: 4px;
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  &:hover { background: ${({ theme }) => theme.colors.primaryHover}; }
+`;
+
+const ResetButton = styled.button`
+  padding: 5px 10px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  &:hover { background: ${({ theme }) => theme.colors.bgHover}; }
+`;
+
+/** 확정된 기간을 표시하는 배지 — 필터 UX 피드백용 */
+const AppliedBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  background: ${({ theme }) => theme.colors.primaryLight};
+  color: ${({ theme }) => theme.colors.primary};
+  border-radius: 20px;
+  border: 1px solid ${({ theme }) => theme.colors.primary};
 `;
 
 const AlertBanner = styled.div`

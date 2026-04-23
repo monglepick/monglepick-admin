@@ -34,6 +34,7 @@ import {
   MdSupportAgent,
   MdMonitor,
   MdSettings,
+  MdAutoAwesome,
 } from 'react-icons/md';
 import { ADMIN_ROUTES } from '../constants/routes';
 import { media } from '../styles/media';
@@ -48,6 +49,8 @@ import { media } from '../styles/media';
  * 예: 영화 데이터 탭 안에 데이터 현황(조회) + 영화/장르 마스터(조작) + 파이프라인이 모두 있음.
  */
 const MENU_ITEMS = [
+  // 2026-04-23: AI 어시스턴트 최상단 고정. 관리자가 "먼저 물어본다" 는 UX 지향 (설계서 §9).
+  { path: ADMIN_ROUTES.ASSISTANT,       icon: MdAutoAwesome,  label: 'AI 어시스턴트' },
   { path: ADMIN_ROUTES.DASHBOARD,       icon: MdDashboard,    label: '대시보드' },
   { path: ADMIN_ROUTES.USERS,           icon: MdPeople,       label: '사용자 관리' },
   { path: ADMIN_ROUTES.BOARD,           icon: MdForum,        label: '게시판 관리' },

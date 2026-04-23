@@ -42,6 +42,8 @@ import {
 import MovieSearchPicker from '@/shared/components/MovieSearchPicker';
 import { normalizeMovie } from '@/shared/components/movieSearchPickerUtils';
 import { fetchMovieDetail } from '@/features/data/api/dataApi';
+import { useAiPrefill } from '@/shared/hooks/useAiPrefill';
+import AiPrefillBanner from '@/shared/components/AiPrefillBanner';
 
 /** 페이지 크기 */
 const PAGE_SIZE = 10;
@@ -94,16 +96,54 @@ const MODE_EDIT = 'EDIT';
  * MovieSearchPicker 가 전체 영화 객체(movieId/title/...)를 넘겨주므로 form 내부에
  * 문자열로 들고 있을 필요가 없어졌다. 제출 시 formMovie?.movieId 를 그대로 사용.
  */
+/**
+ * EMPTY_FORM.options 는 A~D 순서의 4개 문자열 배열.
+ *
+ * QA #76 (2026-04-23): JSON textarea → 4지선다 개별 입력 필드로 전환.
+ * - Backend Quiz.options 는 여전히 JSON 문자열 컬럼이므로 제출 직전 `JSON.stringify(filtered)` 로 직렬화.
+ * - 주관식(options 모두 공란)은 `null` 로 Backend 에 전달.
+ * - 편집 모드에서는 기존 JSON 을 파싱해 4칸에 복원하며, 파싱 실패 시 빈 4칸으로 시작.
+ */
 const EMPTY_FORM = {
   question: '',
   explanation: '',
   correctAnswer: '',
-  options: '',
+  options: ['', '', '', ''],
   rewardPoint: 10,
   quizDate: '',
 };
 
-export default function QuizManagementTab() {
+/** 4지선다 라벨 (UI 전용, Backend 저장 시에는 지문 문자열만 배열로 직렬화) */
+const OPTION_LETTERS = ['A', 'B', 'C', 'D'];
+
+/**
+ * Backend 에서 내려온 options JSON 문자열을 4칸 배열로 복원한다.
+ *
+ * - 정상 JSON 배열이면 앞에서 4개만 취해 빈 칸은 '' 로 패딩.
+ * - 문자열이 아닌 경우(null/undefined/배열 자체) 도 안전하게 처리.
+ * - 파싱 실패 시 빈 4칸 반환 — 운영자는 기존 데이터를 잃지 않고 다시 입력할 수 있도록 유도.
+ */
+function parseOptionsJson(raw) {
+  const fallback = ['', '', '', ''];
+  if (raw == null || raw === '') return fallback;
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!Array.isArray(parsed)) return fallback;
+    return [0, 1, 2, 3].map((i) => (typeof parsed[i] === 'string' ? parsed[i] : ''));
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * @param {Object} props
+ * @param {string|null} [props.aiModal] - ContentEventsPage 가 전달하는 queryModal 값.
+ *   'create' 이면 AI 어시스턴트 draft prefill 과 함께 신규 등록 모달을 자동 오픈한다.
+ */
+export default function QuizManagementTab({ aiModal }) {
+  /* ── AI prefill (quiz_draft: ?tab=quiz&modal=create) ── */
+  const { draft, bannerText } = useAiPrefill();
+
   /* ── 목록 상태 ── */
   const [quizzes, setQuizzes] = useState([]);
   const [totalPages, setTotalPages] = useState(0);
@@ -211,6 +251,51 @@ export default function QuizManagementTab() {
     loadQuizzes();
   }, [loadQuizzes]);
 
+  /**
+   * aiModal='create' 일 때 신규 등록 모달을 자동 오픈.
+   * draft 가 있으면 quiz_draft 필드(question/choices→options/answerIndex→correctAnswer/explanation)를
+   * 폼 초기값으로 주입한다.
+   *
+   * draft_fields: movieId, question, choices(string[]), answerIndex(number), explanation
+   */
+  useEffect(() => {
+    if (aiModal !== 'create' || modalMode !== null) return;
+
+    const prefill = draft
+      ? {
+          ...EMPTY_FORM,
+          question:      draft.question    ?? EMPTY_FORM.question,
+          explanation:   draft.explanation ?? EMPTY_FORM.explanation,
+          /* choices(string[]) → 4칸 배열. 빈 칸은 '' 로 패딩. */
+          options: Array.isArray(draft.choices)
+            ? [0, 1, 2, 3].map((i) => draft.choices[i] ?? '')
+            : EMPTY_FORM.options,
+          /* answerIndex(0-based) → 해당 보기 텍스트를 correctAnswer 로 변환. */
+          correctAnswer:
+            typeof draft.answerIndex === 'number' && Array.isArray(draft.choices)
+              ? (draft.choices[draft.answerIndex] ?? EMPTY_FORM.correctAnswer)
+              : EMPTY_FORM.correctAnswer,
+        }
+      : EMPTY_FORM;
+
+    /* movieId draft 가 있으면 MovieSearchPicker chip 도 초기화 */
+    if (draft?.movieId) {
+      fetchMovieDetail(draft.movieId)
+        .then((detail) => {
+          const normalized = normalizeMovie(detail);
+          if (normalized) setFormMovie(normalized);
+        })
+        .catch(() => {
+          setFormMovie({ movieId: String(draft.movieId), title: draft.movieId, titleEn: '', releaseYear: '', posterPath: '' });
+        });
+    }
+
+    setForm(prefill);
+    setEditTargetId(null);
+    setModalMode(MODE_CREATE);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiModal]);
+
   /** 상태 필터 변경 — 첫 페이지로 초기화 */
   function handleStatusFilterChange(e) {
     setStatusFilter(e.target.value);
@@ -239,7 +324,8 @@ export default function QuizManagementTab() {
       question: item.question ?? '',
       explanation: item.explanation ?? '',
       correctAnswer: item.correctAnswer ?? '',
-      options: item.options ?? '',
+      /* QA #76: Backend 의 options JSON 문자열을 4칸 배열로 복원. */
+      options: parseOptionsJson(item.options),
       rewardPoint: item.rewardPoint ?? 10,
       quizDate: item.quizDate ?? '',
     });
@@ -281,10 +367,24 @@ export default function QuizManagementTab() {
     setSubmitting(false);
   }
 
-  /** 폼 입력 핸들러 */
+  /** 폼 입력 핸들러 (단일 필드) */
   function handleFormChange(e) {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
+  }
+
+  /**
+   * 4지선다 개별 지문 입력 핸들러.
+   *
+   * QA #76: JSON textarea 를 4개 입력 필드로 분리하면서 인덱스 기반 업데이트가 필요.
+   * prev.options 배열을 복사해 해당 인덱스만 교체한다 (immutable update).
+   */
+  function handleOptionChange(index, value) {
+    setForm((prev) => {
+      const next = Array.isArray(prev.options) ? [...prev.options] : ['', '', '', ''];
+      next[index] = value;
+      return { ...prev, options: next };
+    });
   }
 
   /** 폼 제출 */
@@ -293,6 +393,18 @@ export default function QuizManagementTab() {
     if (submitting) return;
     try {
       setSubmitting(true);
+      /* QA #76: 4칸 지문을 공백 제거 후 빈 문자열 제거 → 2개 이상이면 JSON 직렬화.
+       * - 2개 미만이면 객관식이 성립하지 않으므로 null 로 저장(주관식 퀴즈). */
+      const trimmedOptions = (form.options ?? [])
+        .map((o) => (o ?? '').trim())
+        .filter(Boolean);
+      if (trimmedOptions.length > 0 && trimmedOptions.length < 2) {
+        alert('객관식 퀴즈는 최소 2개 이상의 선택지가 필요합니다. (주관식은 4칸 모두 비워두세요.)');
+        setSubmitting(false);
+        return;
+      }
+      const optionsJson = trimmedOptions.length >= 2 ? JSON.stringify(trimmedOptions) : null;
+
       const payload = {
         /* 2026-04-14: MovieSearchPicker 로 선택된 영화의 movieId 만 추출.
          * 영화 선택 없음(일반 퀴즈) 일 경우 null — Backend 는 nullable 허용. */
@@ -300,7 +412,7 @@ export default function QuizManagementTab() {
         question: form.question?.trim(),
         explanation: form.explanation || null,
         correctAnswer: form.correctAnswer?.trim(),
-        options: form.options || null,
+        options: optionsJson,
         rewardPoint: form.rewardPoint === '' ? 10 : Number(form.rewardPoint),
         quizDate: form.quizDate || null,
       };
@@ -563,6 +675,9 @@ export default function QuizManagementTab() {
               {modalMode === MODE_CREATE ? '퀴즈 신규 등록 (PENDING)' : '퀴즈 수정'}
             </DialogTitle>
             <form onSubmit={handleSubmit}>
+              {/* ── AI 어시스턴트 prefill 안내 배너 (quiz_draft 가 있을 때만 노출) ── */}
+              {bannerText && <AiPrefillBanner text={bannerText} />}
+
               <FieldRow>
                 <Field>
                   {/*
@@ -614,15 +729,31 @@ export default function QuizManagementTab() {
                 />
               </Field>
               <Field>
-                <Label>선택지 (JSON 배열, 객관식만)</Label>
-                <Textarea
-                  name="options"
-                  value={form.options}
-                  onChange={handleFormChange}
-                  rows={2}
-                  placeholder='예: ["A지문", "B지문", "C지문", "D지문"]'
-                />
-                <FieldHint>주관식 퀴즈는 비워두세요.</FieldHint>
+                {/*
+                 * QA #76 (2026-04-23): JSON textarea → 4지선다 개별 입력.
+                 * 운영자는 A/B/C/D 각 지문을 평문으로 입력하고, 제출 직전에 JSON 배열로 직렬화된다.
+                 * 주관식 퀴즈를 등록하려면 4칸 모두 공란으로 둔다.
+                 * "정답" 필드에는 정답 지문 본문 또는 "A"/"B"/"C"/"D" 라벨을 입력한다 (Backend 동일).
+                 */}
+                <Label>선택지 (4지선다 · 객관식만)</Label>
+                <OptionList>
+                  {OPTION_LETTERS.map((letter, i) => (
+                    <OptionRow key={letter}>
+                      <OptionLetter>{letter}</OptionLetter>
+                      <Input
+                        type="text"
+                        value={form.options?.[i] ?? ''}
+                        onChange={(e) => handleOptionChange(i, e.target.value)}
+                        maxLength={200}
+                        placeholder={`${letter} 지문`}
+                      />
+                    </OptionRow>
+                  ))}
+                </OptionList>
+                <FieldHint>
+                  주관식 퀴즈는 4칸 모두 비워두세요. 2개 이상 입력 시 객관식으로 저장됩니다.
+                  정답 필드에는 지문 본문 또는 A/B/C/D 라벨을 입력합니다.
+                </FieldHint>
               </Field>
               <Field>
                 <Label>해설</Label>
@@ -1000,6 +1131,35 @@ const FieldHint = styled.span`
   margin-top: 4px;
   font-size: 11px;
   color: ${({ theme }) => theme.colors.textMuted};
+`;
+
+/* QA #76 — 4지선다 입력 그룹 */
+const OptionList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+`;
+
+const OptionRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+
+/** A/B/C/D 라벨 — 고정 폭 원형 배지로 각 지문 입력란을 시각 구분 */
+const OptionLetter = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: ${({ theme }) => theme.colors.bgHover};
+  color: ${({ theme }) => theme.colors.textSecondary};
+  font-size: 11px;
+  font-weight: ${({ theme }) => theme.fontWeights.semibold};
+  border: 1px solid ${({ theme }) => theme.colors.border};
 `;
 
 const DialogFooter = styled.div`

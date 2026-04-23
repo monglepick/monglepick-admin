@@ -14,7 +14,7 @@
  * - 폐지된 정책은 hard delete 미지원, 활성/비활성 토글만 가능
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import styled from 'styled-components';
 import { MdRefresh, MdAdd, MdEdit, MdToggleOn, MdToggleOff, MdHistory } from 'react-icons/md';
 import {
@@ -28,6 +28,10 @@ import {
 import CsvImportButton from '@/shared/components/CsvImportButton';
 /* 2026-04-09 P2-⑰ 확장: 전체 정책 변경 이력 대시보드 모달 */
 import PolicyHistoryDashboardModal from './PolicyHistoryDashboardModal';
+/* v3 Phase G P1-B: AI 어시스턴트 draft 주입 인프라 */
+import { useQueryParams } from '@/shared/hooks/useQueryParams';
+import { useAiPrefill } from '@/shared/hooks/useAiPrefill';
+import AiPrefillBanner from '@/shared/components/AiPrefillBanner';
 
 const PAGE_SIZE = 10;
 
@@ -317,6 +321,12 @@ export default function RewardPolicyTab() {
   const [submitting, setSubmitting] = useState(false);
   const [busyId, setBusyId] = useState(null);
 
+  /* ── v3 Phase G P1-B: AI 어시스턴트 자동 모달 오픈 ── */
+  const queryParams = useQueryParams();
+  const { draft, isAiGenerated, bannerText } = useAiPrefill();
+  /** ?modal=create 자동 오픈은 마운트 1회만 실행 */
+  const aiModalConsumedRef = useRef(false);
+
   /* ── 변경 이력 패널 (기존 — 개별 정책 단위) ── */
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyTarget, setHistoryTarget] = useState(null);
@@ -347,6 +357,29 @@ export default function RewardPolicyTab() {
   }, [page]);
 
   useEffect(() => { loadPolicies(); }, [loadPolicies]);
+
+  /* v3 Phase G P1-B: ?modal=create 진입 시 생성 모달 자동 오픈.
+   * AI draft 가 있으면 draft.code → actionType, draft.pointAmount → pointsAmount,
+   * draft.condition → description 으로 매핑해 폼 초기값 주입.
+   * consumedRef 로 중복 발동을 차단한다. */
+  useEffect(() => {
+    if (aiModalConsumedRef.current) return;
+    if (queryParams.modal !== 'create') return;
+    aiModalConsumedRef.current = true;
+    const prefill = isAiGenerated && draft
+      ? {
+          ...EMPTY_FORM,
+          /* draft.code → actionType, draft.pointAmount → pointsAmount,
+           * draft.condition → description 매핑 */
+          actionType:   draft.code          ?? EMPTY_FORM.actionType,
+          pointsAmount: draft.pointAmount   ?? EMPTY_FORM.pointsAmount,
+          description:  draft.condition     ?? EMPTY_FORM.description,
+        }
+      : EMPTY_FORM;
+    setForm(prefill);
+    setEditTargetId(null);
+    setModalMode(MODE_CREATE);
+  }, [queryParams.modal, isAiGenerated, draft]);
 
   function openCreateModal() {
     setForm(EMPTY_FORM);
@@ -610,6 +643,10 @@ export default function RewardPolicyTab() {
             <DialogTitle>
               {modalMode === MODE_CREATE ? '리워드 정책 신규 등록' : '리워드 정책 수정'}
             </DialogTitle>
+            {/* v3 Phase G P1-B: AI 어시스턴트 draft 주입 시 안내 배너 */}
+            {modalMode === MODE_CREATE && isAiGenerated && (
+              <AiPrefillBanner text={bannerText} />
+            )}
             <form onSubmit={handleSubmit}>
               {modalMode === MODE_CREATE && (
                 <FieldRow>

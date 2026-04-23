@@ -20,6 +20,8 @@
  */
 export const ADMIN_ROUTES = {
   ROOT: '/admin',
+  /** 관리자 AI 어시스턴트 — 2026-04-23 신규. 사이드바 최상단 고정. */
+  ASSISTANT: '/admin/assistant',
   DASHBOARD: '/admin/dashboard',
   USERS: '/admin/users',
   BOARD: '/admin/board',                  // 구 CONTENT — 게시판 관리

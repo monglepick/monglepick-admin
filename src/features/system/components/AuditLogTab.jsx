@@ -4,6 +4,11 @@
  * 2026-04-08: 설정 → 시스템 탭으로 이동. 조회 전용 성격이 시스템 모니터링(서비스 상태/
  * DB 상태/Ollama/Config)과 동일하여 통합. 설정 탭은 순수 CRUD 전용으로 정리함.
  *
+ * 2026-04-23 Phase G 배치 C:
+ *  - aiAuditFilter prop 추가. AI 어시스턴트 goto_audit_log 이벤트로 전달된
+ *    초기 필터값(actionType / adminId)을 입력 상태와 확정 필터 상태 양쪽에 주입하여
+ *    별도 "검색" 버튼 클릭 없이 자동으로 조회 결과를 표시한다.
+ *
  * 기능:
  * - 관리자 활동 로그 목록 테이블 (actionType, targetType, targetId, description, adminId, IP, 시간)
  * - actionType 검색 필터 + 새로고침 버튼
@@ -66,20 +71,31 @@ const TARGET_TYPE_OPTIONS = [
   { value: 'BANNER',          label: 'BANNER (배너)' },
 ];
 
-export default function AuditLogTab() {
+/**
+ * 감사 로그 탭 컴포넌트.
+ *
+ * @param {Object}      props
+ * @param {Object|null} props.aiAuditFilter - AI 어시스턴트가 주입하는 초기 필터값.
+ *   - actionType {string|undefined} — 액션 유형 키워드 (예: "DELETE")
+ *   - adminId    {string|undefined} — 관리자 ID 필터
+ *   null 이면 필터 초기값 없이 전체 조회.
+ */
+export default function AuditLogTab({ aiAuditFilter = null }) {
   /* ── 목록 상태 ── */
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   /* ── 검색/필터 입력 상태 (타이핑 중인 값, 아직 API 에 전달되지 않음) ── */
-  const [searchInput, setSearchInput] = useState('');     // actionType 입력
+  /* AI 필터가 있으면 해당 값을 초기값으로 주입한다 */
+  const [searchInput, setSearchInput] = useState(aiAuditFilter?.actionType ?? '');     // actionType 입력
   const [targetTypeInput, setTargetTypeInput] = useState(''); // targetType 입력
   const [fromDateInput, setFromDateInput] = useState(''); // 시작 시각 (datetime-local 문자열)
   const [toDateInput, setToDateInput] = useState('');     // 종료 시각 (datetime-local 문자열)
 
   /* ── 실제 API 요청에 사용되는 확정 필터 상태 ── */
-  const [actionTypeFilter, setActionTypeFilter] = useState('');
+  /* AI 필터가 있으면 초기 확정 필터로 즉시 적용 — 별도 "검색" 버튼 클릭 불필요 */
+  const [actionTypeFilter, setActionTypeFilter] = useState(aiAuditFilter?.actionType ?? '');
   const [targetTypeFilter, setTargetTypeFilter] = useState('');
   const [fromDateFilter, setFromDateFilter]     = useState('');
   const [toDateFilter, setToDateFilter]         = useState('');

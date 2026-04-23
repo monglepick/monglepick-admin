@@ -13,7 +13,7 @@
  * - 가격 변경은 결제 검증에 영향. 폐지된 팩은 토글로 비활성화 권장
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import styled from 'styled-components';
 import { MdRefresh, MdAdd, MdEdit, MdDelete, MdToggleOn, MdToggleOff } from 'react-icons/md';
 import {
@@ -23,6 +23,10 @@ import {
   updatePointPackActive,
   deletePointPack,
 } from '../api/pointPackApi';
+/* v3 Phase G P1-B: AI 어시스턴트 draft 주입 인프라 */
+import { useQueryParams } from '@/shared/hooks/useQueryParams';
+import { useAiPrefill } from '@/shared/hooks/useAiPrefill';
+import AiPrefillBanner from '@/shared/components/AiPrefillBanner';
 
 const PAGE_SIZE = 10;
 const MODE_CREATE = 'CREATE';
@@ -53,6 +57,12 @@ export default function PointPackTab() {
   const [submitting, setSubmitting] = useState(false);
   const [busyId, setBusyId] = useState(null);
 
+  /* ── v3 Phase G P1-B: AI 어시스턴트 자동 모달 오픈 ── */
+  const queryParams = useQueryParams();
+  const { draft, isAiGenerated, bannerText } = useAiPrefill();
+  /** ?modal=create 자동 오픈은 마운트 1회만 실행 */
+  const aiModalConsumedRef = useRef(false);
+
   const loadPacks = useCallback(async () => {
     try {
       setLoading(true);
@@ -68,6 +78,29 @@ export default function PointPackTab() {
   }, [page]);
 
   useEffect(() => { loadPacks(); }, [loadPacks]);
+
+  /* v3 Phase G P1-B: ?modal=create 진입 시 생성 모달 자동 오픈.
+   * AI draft 가 있으면 draft.packCode → packName, draft.points → pointsAmount,
+   * draft.priceKrw → price 로 매핑해 폼 초기값 주입.
+   * consumedRef 로 중복 발동을 차단한다. */
+  useEffect(() => {
+    if (aiModalConsumedRef.current) return;
+    if (queryParams.modal !== 'create') return;
+    aiModalConsumedRef.current = true;
+    const prefill = isAiGenerated && draft
+      ? {
+          ...EMPTY_FORM,
+          /* draft.packCode → packName, draft.points → pointsAmount,
+           * draft.priceKrw → price 매핑 */
+          packName:     draft.packCode  ?? EMPTY_FORM.packName,
+          pointsAmount: draft.points    ?? EMPTY_FORM.pointsAmount,
+          price:        draft.priceKrw  ?? EMPTY_FORM.price,
+        }
+      : EMPTY_FORM;
+    setForm(prefill);
+    setEditTargetId(null);
+    setModalMode(MODE_CREATE);
+  }, [queryParams.modal, isAiGenerated, draft]);
 
   function openCreateModal() {
     setForm(EMPTY_FORM);
@@ -266,6 +299,10 @@ export default function PointPackTab() {
             <DialogTitle>
               {modalMode === MODE_CREATE ? '포인트팩 신규 등록' : '포인트팩 수정'}
             </DialogTitle>
+            {/* v3 Phase G P1-B: AI 어시스턴트 draft 주입 시 안내 배너 */}
+            {modalMode === MODE_CREATE && isAiGenerated && (
+              <AiPrefillBanner text={bannerText} />
+            )}
             <form onSubmit={handleSubmit}>
               <Field>
                 <Label>팩 이름 *</Label>

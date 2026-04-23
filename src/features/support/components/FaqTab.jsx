@@ -14,6 +14,9 @@ import styled from 'styled-components';
 import { MdAdd, MdEdit, MdDelete, MdRefresh } from 'react-icons/md';
 import { fetchFaqs, createFaq, updateFaq, deleteFaq } from '../api/supportApi';
 import StatusBadge from '@/shared/components/StatusBadge';
+import { useQueryParams } from '@/shared/hooks/useQueryParams';
+import { useAiPrefill } from '@/shared/hooks/useAiPrefill';
+import AiPrefillBanner from '@/shared/components/AiPrefillBanner';
 
 /**
  * FAQ 카테고리 옵션.
@@ -56,6 +59,15 @@ const INITIAL_FORM = {
 };
 
 export default function FaqTab() {
+  /* ── URL 쿼리파라미터 / AI prefill ── */
+  /**
+   * ?modal=create  → FAQ 등록 모달 자동 오픈
+   * AI 어시스턴트가 draft 를 location.state 에 심어두면 모달 초기값으로 주입.
+   * draft 필드명: category, question, answer, tags (현재 폼은 tags 미지원 → 무시)
+   */
+  const { modal: queryModal } = useQueryParams();
+  const { draft, bannerText } = useAiPrefill();
+
   /* ── 목록 상태 ── */
   const [faqs, setFaqs] = useState([]);
   const [total, setTotal] = useState(0);
@@ -95,6 +107,27 @@ export default function FaqTab() {
   }, [page, filterCategory]);
 
   useEffect(() => { loadFaqs(); }, [loadFaqs]);
+
+  /**
+   * ?modal=create 쿼리가 있으면 FAQ 등록 모달을 자동 오픈.
+   * draft 가 있으면 category/question/answer 필드를 초기값으로 주입.
+   * (tags 필드는 현재 FaqTab 폼에 없으므로 무시)
+   */
+  useEffect(() => {
+    if (queryModal !== 'create' || modalOpen) return;
+    const prefill = draft
+      ? {
+          ...INITIAL_FORM,
+          category:    draft.category ?? INITIAL_FORM.category,
+          question:    draft.question ?? INITIAL_FORM.question,
+          answer:      draft.answer   ?? INITIAL_FORM.answer,
+        }
+      : INITIAL_FORM;
+    setEditTarget(null);
+    setForm(prefill);
+    setModalOpen(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryModal]);
 
   /** 카테고리 필터 변경 — 첫 페이지로 리셋 */
   function handleCategoryChange(value) {
@@ -273,6 +306,9 @@ export default function FaqTab() {
             </ModalHeader>
 
             <ModalForm onSubmit={handleFormSubmit}>
+              {/* ── AI 어시스턴트 prefill 안내 배너 (draft 가 있을 때만 노출) ── */}
+              {bannerText && <AiPrefillBanner text={bannerText} />}
+
               <FormRow>
                 <Label>카테고리 *</Label>
                 <Select name="category" value={form.category} onChange={handleFormChange}>

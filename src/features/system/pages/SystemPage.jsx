@@ -18,6 +18,10 @@
  *  - Neo4j Browser 섹션 추가 (빠른 쿼리 프리필 5종 포함, URL 기반 자동 실행 불가 안내)
  *  - Swagger / OpenAPI 문서 카드 3종 추가 (Backend / Agent / Recommend)
  *
+ * 2026-04-23 Phase G 배치 C:
+ *  - URL 쿼리파라미터 `?q=...&actor=...&action=...` 을 AuditLogTab 에 초기 필터로 전달.
+ *    AI 어시스턴트의 goto_audit_log 이벤트로 특정 조건으로 자동 조회 가능.
+ *
  * 7개 섹션 (모두 조회 전용, 위→아래 순):
  *  - 서비스 상태: 4개 서비스 헬스체크 (Spring Boot / Agent / Recommend / Nginx)
  *  - DB 상태: 5개 DB 커넥션/쿼리 상태 (MySQL / Redis / Qdrant / Neo4j / ES)
@@ -36,8 +40,25 @@ import VllmStatus from '../components/VllmStatus';
 import MonitoringGuide from '../components/MonitoringGuide';
 import ConfigViewer from '../components/ConfigViewer';
 import AuditLogTab from '../components/AuditLogTab';
+import { useQueryParams } from '@/shared/hooks/useQueryParams';
 
 export default function SystemPage() {
+  const queryParams = useQueryParams();
+
+  /**
+   * AI 어시스턴트 goto_audit_log 이벤트로 전달된 초기 검색 필터.
+   * - q      → actionType 키워드 (예: "DELETE", "REFUND")
+   * - actor  → 관리자 ID 필터 (AuditLogTab 의 adminId 검색)
+   * - action → actionType 과 동의어. q 가 없을 때 fallback 으로 사용.
+   * 셋 모두 없으면 undefined — AuditLogTab 기본값(빈 문자열)으로 폴백.
+   */
+  const aiAuditFilter = (queryParams.q || queryParams.actor || queryParams.action)
+    ? {
+        actionType: queryParams.q || queryParams.action || undefined,
+        adminId:    queryParams.actor || undefined,
+      }
+    : null;
+
   return (
     <Wrapper>
       <PageHeader>
@@ -56,7 +77,7 @@ export default function SystemPage() {
         <VllmStatus />
         <MonitoringGuide />
         <ConfigViewer />
-        <AuditLogTab />
+        <AuditLogTab aiAuditFilter={aiAuditFilter} />
       </Stack>
     </Wrapper>
   );
