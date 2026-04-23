@@ -136,7 +136,15 @@ export default function BannerTab() {
     }));
   }
 
-  /** 등록/수정 제출 */
+  /**
+   * 등록/수정 제출.
+   *
+   * QA #118 (2026-04-23): 배너 링크가 `/page` 같은 상대경로로 저장되면 Client 에서
+   * `window.open(linkUrl)` 이 현재 도메인 기준으로 해석돼 관리자 도메인(5174)으로 튕긴다.
+   * 저장 직전에 스킴을 검사해 ① 비어있으면 null 로 저장 ② `http(s)://` 로 시작하면 그대로
+   * ③ `//` 프로토콜 상대 URL 은 그대로 ④ 그 외에는 `https://` 를 자동 prefix 한다.
+   * 내부 앱 경로를 의도한 경우 운영자가 확인 버튼으로 명시적으로 허용한다.
+   */
   async function handleFormSubmit(e) {
     e.preventDefault();
     if (!form.title.trim()) {
@@ -148,11 +156,32 @@ export default function BannerTab() {
       return;
     }
 
+    const rawLink = (form.linkUrl ?? '').trim();
+    let normalizedLink = rawLink || null;
+    if (rawLink) {
+      if (/^https?:\/\//i.test(rawLink) || rawLink.startsWith('//')) {
+        normalizedLink = rawLink;
+      } else if (rawLink.startsWith('/')) {
+        // 절대 경로 — 운영자가 내부 앱 경로를 의도한 것인지 확인.
+        const ok = confirm(
+          `링크 URL 이 내부 경로("${rawLink}")로 저장됩니다.\n` +
+            `유저 페이지(5173)/관리자 페이지(5174) 중 어느 쪽으로 열릴지는 클릭한 위치에 따라 달라질 수 있습니다.\n` +
+            `외부 사이트로 열려야 한다면 "취소" 후 https:// 를 포함한 전체 URL 을 입력해주세요.`,
+        );
+        if (!ok) return;
+        normalizedLink = rawLink;
+      } else {
+        // 프로토콜 누락 — https:// 자동 prefix (http:// 은 의도적으로 지양)
+        normalizedLink = `https://${rawLink}`;
+      }
+    }
+
     try {
       setFormLoading(true);
-      // 날짜 빈 문자열은 null로 변환
+      // 날짜 빈 문자열은 null로 변환, 링크 URL 은 위에서 정규화한 값 사용
       const payload = {
         ...form,
+        linkUrl: normalizedLink,
         startDate: form.startDate || null,
         endDate: form.endDate || null,
       };
