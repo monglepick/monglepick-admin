@@ -85,13 +85,14 @@ const ROLE_BADGE = {
   USER:  { status: 'default', label: 'USER' },
 };
 
-/** 등급 → StatusBadge 매핑 */
+/** 등급 → StatusBadge 매핑 (gradeCode 기준) */
 const GRADE_BADGE = {
   NORMAL:   { status: 'default', label: 'NORMAL' },
   BRONZE:   { status: 'warning', label: 'BRONZE' },
   SILVER:   { status: 'info',    label: 'SILVER' },
   GOLD:     { status: 'warning', label: 'GOLD' },
   PLATINUM: { status: 'success', label: 'PLATINUM' },
+  DIAMOND:  { status: 'info',    label: 'DIAMOND' },
 };
 
 /**
@@ -201,6 +202,16 @@ export default function UserDetailPanel({
   }, [userId]);
 
   useEffect(() => { loadDetail(); }, [loadDetail]);
+
+  /* 상세 로드 완료 후 initialAction 이 있으면 해당 모달 자동 오픈 (AI 어시스턴트 연동) */
+  useEffect(() => {
+    if (detail && initialAction) {
+      setModalMode(initialAction);
+      onInitialActionConsumed?.();
+    }
+  // detail.userId 기준으로 1회만 실행 — initialAction/onInitialActionConsumed 는 렌더마다 변하지 않음
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.userId]);
 
   /**
    * 미니 탭 데이터 로딩.
@@ -490,8 +501,8 @@ export default function UserDetailPanel({
               <StatCard>
                 <StatLabel>등급</StatLabel>
                 <StatusBadge
-                  status={GRADE_BADGE[detail.grade]?.status ?? 'default'}
-                  label={GRADE_BADGE[detail.grade]?.label ?? (detail.grade ?? '-')}
+                  status={GRADE_BADGE[detail.gradeCode]?.status ?? 'default'}
+                  label={detail.gradeName ?? GRADE_BADGE[detail.gradeCode]?.label ?? (detail.gradeCode ?? '-')}
                 />
               </StatCard>
             </StatRow>
@@ -787,15 +798,15 @@ export default function UserDetailPanel({
                       {activeTab === 'points' && (
                         <>
                           <TabItemLeft>
-                            <TabItemType>{item.type ?? item.changeType ?? '-'}</TabItemType>
+                            <TabItemType>{item.pointType ?? item.type ?? item.changeType ?? '-'}</TabItemType>
                             <TabItemDesc>{item.description ?? item.reason ?? '-'}</TabItemDesc>
                           </TabItemLeft>
                           <TabItemRight>
                             <TabItemAmount
-                              $positive={(item.amount ?? item.changeAmount ?? 0) > 0}
+                              $positive={(item.pointChange ?? item.amount ?? item.changeAmount ?? 0) > 0}
                             >
-                              {(item.amount ?? item.changeAmount ?? 0) > 0 ? '+' : ''}
-                              {(item.amount ?? item.changeAmount ?? 0).toLocaleString()}P
+                              {(item.pointChange ?? item.amount ?? item.changeAmount ?? 0) > 0 ? '+' : ''}
+                              {(item.pointChange ?? item.amount ?? item.changeAmount ?? 0).toLocaleString()}P
                             </TabItemAmount>
                             <TabItemDate>{formatDate(item.createdAt)}</TabItemDate>
                           </TabItemRight>
