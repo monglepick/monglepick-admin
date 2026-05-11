@@ -15,7 +15,7 @@
  * - 상세 모달 — 리뷰 본문 + 영화 줄거리 + 매칭 키워드 배지 + 승인/반려/재검증 3버튼
  *
  * <h3>참고 패턴</h3>
- * ToxicityTab.jsx 의 점수 색상/조치 모달 패턴 + QuizManagementTab 의 복합 필터 + KPI 카드 블럭.
+ * QuizManagementTab 의 복합 필터 + KPI 카드 블럭 패턴을 참고.
  * 중복 코드는 의도적 — 이 탭은 독립적으로 유지보수/삭제 가능해야 하므로 얕은 공유에 머문다.
  */
 
@@ -67,7 +67,7 @@ const MIN_CONFIDENCE_OPTIONS = [
 
 /**
  * 점수(0.0~1.0) → StatusBadge 색상 variant.
- * ToxicityTab 과 반대 방향: 점수가 높을수록 "좋은" 인증이므로 success/warning/error.
+ * 점수가 높을수록 "좋은" 인증이므로 success/warning/error.
  */
 function confidenceToBadgeStatus(score) {
   if (score == null) return 'default';

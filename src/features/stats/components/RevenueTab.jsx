@@ -1,7 +1,12 @@
 /**
  * 매출 분석 탭 컴포넌트 (확장 — 2026-04-28).
  *
+ * 2026-05-11 추가: Upstage Solar API 사용량/비용 섹션을 본문 최상단(SectionLabel "핵심 매출 지표"
+ * 직전) 에 삽입. 운영진의 1차 모니터링 지표가 매출 + Solar API 비용으로 격상되었기 때문.
+ * (별도 컴포넌트 SolarUsageSection 으로 분리 — 자체 기간 선택/로딩 상태 보유.)
+ *
  * 구성:
+ *  Row 0. **Upstage Solar API 사용량/비용** (2026-05-11 신규, SolarUsageSection)
  *  Row 1. 핵심 KPI (오늘/어제/이번주/월매출/MRR/순매출/객단가/ARPU/누적매출)
  *  Row 2. 환불 KPI (환불액/환불건수/환불률/결제건수/결제유저)
  *  Row 3. 일별 매출 + 결제 건수 ComposedChart (선택 기간)
@@ -56,6 +61,7 @@ import {
 } from 'react-icons/md';
 import StatsCard from '@/shared/components/StatsCard';
 import { fetchRevenue, fetchSubscription } from '../api/statsApi';
+import SolarUsageSection from './SolarUsageSection';
 
 /** 기간 선택 옵션 */
 const PERIOD_OPTIONS = [
@@ -433,8 +439,16 @@ export default function RevenueTab() {
         </PeriodGroup>
       </FilterRow>
 
+      {/* ── Row 0 (2026-05-11): Upstage Solar API 사용량/비용 ── */}
+      {/*
+        SolarUsageSection 은 자체 기간 선택과 로딩 상태를 가진 자급자족 컴포넌트.
+        매출 탭의 PeriodGroup 과 독립적으로 동작하며, 본문 최상단에 위치해
+        운영진의 1차 모니터링 지표로 노출된다.
+      */}
+      <SolarUsageSection />
+
       {/* ── Row 1: 핵심 KPI ── */}
-      <SectionLabel>핵심 매출 지표</SectionLabel>
+      <SectionLabel style={{ marginTop: '32px' }}>핵심 매출 지표</SectionLabel>
       {revenueError && <ErrorMsg>{revenueError}</ErrorMsg>}
       <KpiGrid>
         {headlineCards.map((card) => (

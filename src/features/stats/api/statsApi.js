@@ -423,3 +423,23 @@ export function fetchChurnRiskOverview() {
 export function fetchChurnRiskSignals() {
   return backendApi.get(`${STATS}/churn-risk/signals`);
 }
+
+/**
+ * Upstage Solar API 사용량/비용 통계 조회 (2026-05-11 신규).
+ *
+ * 매출 탭의 "Solar API 사용/비용" 섹션에서 호출한다. KPI(오늘/어제/이번달/기간/누적),
+ * 일별 추이, 모델별·에이전트별 분포를 단일 응답으로 받아온다. 데이터 0건이어도
+ * KPI 는 0 값으로 채워져 반환된다.
+ *
+ * @param {Object} params
+ * @param {string} [params.period='30d'] - 집계 기간 (7d | 30d | 90d)
+ * @returns {Promise<Object>} {
+ *   period, today, yesterday, thisMonth, periodTotal, allTimeTotal,
+ *   dailyTrend: [{ date, promptTokens, completionTokens, totalTokens, costUsd, callCount }],
+ *   byModel:   [{ model, totalTokens, costUsd, callCount, ratio }],
+ *   byAgent:   [{ agentName, totalTokens, costUsd, callCount, ratio }]
+ * }
+ */
+export function fetchSolarUsage(params) {
+  return backendApi.get(`${STATS}/solar-usage`, { params });
+}

@@ -30,13 +30,19 @@ import ContentPerformanceTab from '../components/ContentPerformanceTab';
 import ConversionFunnelTab from '../components/ConversionFunnelTab';
 import ChurnRiskTab from '../components/ChurnRiskTab';
 
-/** 서브탭 정의 (12개). 라벨은 직관적인 한국어로 — 탭 키는 호환을 위해 유지. */
+/**
+ * 서브탭 정의 (12개). 라벨은 직관적인 한국어로 — 탭 키는 호환을 위해 유지.
+ *
+ * 2026-05-11 개편: 매출 탭을 맨 앞으로 이동 (서비스 통계 왼쪽).
+ *  - 운영진의 1차 모니터링 지표가 매출/Solar API 비용으로 격상됨.
+ *  - 매출 탭 안에 "Upstage Solar API 사용량 / 비용" 섹션이 추가됨 (RevenueTab 참조).
+ */
 const TABS = [
+  { key: 'revenue',            label: '매출' },
   { key: 'service',            label: '서비스 통계' },
   { key: 'recommendation',     label: '추천 분석' },
   { key: 'search',             label: '검색 분석' },
   { key: 'behavior',           label: '사용자 행동' },
-  { key: 'revenue',            label: '매출' },
   { key: 'pointEconomy',       label: '포인트 경제' },
   { key: 'aiService',          label: 'AI 서비스' },
   { key: 'community',          label: '커뮤니티' },
@@ -47,15 +53,15 @@ const TABS = [
 ];
 
 export default function StatsPage() {
-  /** 현재 활성 탭 키 */
-  const [activeTab, setActiveTab] = useState('service');
+  /** 현재 활성 탭 키 — 2026-05-11 매출 탭 우선 진입으로 변경 */
+  const [activeTab, setActiveTab] = useState('revenue');
 
   /**
    * 방문한 탭 키 Set.
    * useRef로 관리하여 리렌더링 없이 추적.
-   * 최초 탭('service')은 초기값에 포함.
+   * 최초 탭('revenue')은 초기값에 포함.
    */
-  const visitedRef = useRef(new Set(['service']));
+  const visitedRef = useRef(new Set(['revenue']));
 
   /**
    * 탭 클릭 핸들러.
